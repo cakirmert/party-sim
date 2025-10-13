@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoomGeneratorInput",
+  "type": "object",
+  "properties": {
+    "numAgents": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "room": {
+      "type": "object",
+      "properties": {
+        "size": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2, "default": [3,3] },
+        "corridorWidth": { "type": "integer", "default": 2 },
+        "wing": { "type": "string", "enum": ["left","right","bottom","top"], "default": "bottom" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["numAgents"],
+  "additionalProperties": false
+}
