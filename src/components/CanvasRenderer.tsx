@@ -5,6 +5,7 @@ import { Engine } from "@/lib/engine/Engine";
 import { Camera } from "@/lib/engine/Camera";
 import type { BaseSpec, EngineConfig, Tile, TileTag, Vec2 } from "@/lib/engine/Types";
 import { useSimStore } from "@/lib/state/useSimStore";
+import { getAgentColor } from "./utils";
 
 type Props = {
   engineRef: React.MutableRefObject<Engine | null>;
@@ -314,6 +315,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
         ctx.lineWidth = 2 / camera.zoom;
         ctx.moveTo((drawX + 0.5) * ppt, (drawY + 0.5) * ppt);
         for (const p of a.path) ctx.lineTo((p.x + 0.5) * ppt, (p.y + 0.5) * ppt);
+        // use this to get the no o f pixels, a.path.length
         ctx.stroke();
       }
 
@@ -321,7 +323,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
       const baseX = drawX * ppt;
       const baseY = drawY * ppt;
 
-      ctx.fillStyle = "#2563eb";
+      ctx.fillStyle = getAgentColor(a.agentType);
       ctx.fillRect(baseX + pad, baseY + pad, ppt - pad * 2, ppt - pad * 2);
 
       // front wedge indicates facing

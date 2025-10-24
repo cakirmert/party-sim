@@ -1,6 +1,6 @@
 import { GridMap } from "./GridMap";
 import { aStar8 } from "./Pathfinder";
-import { Agent } from "./Agent";
+import { Agent, AGENT_PROPS } from "./Agent";
 import type { EngineConfig, Vec2, BaseSpec, Tile, TileTag, AgentState } from "./Types";
 import { RNG } from "./RNG";
 import type { Command } from "./Commands";
@@ -20,6 +20,8 @@ export interface OutRecord {
   exitPos: Vec2;
 }
 
+export type timeOfDay = "morning" | "afternoon" | "night";
+
 export class Engine {
   readonly cfg: EngineConfig;
   map: GridMap;
@@ -37,8 +39,8 @@ export class Engine {
 
   /** Room spawn positions from the latest generation (one per agent). */
   private roomSpawns: Vec2[] = [];
-  private poiCapacity: Record<"BAR"|"GYM", number> = { BAR: 30, GYM: 15 };
-  private poiOccupancy: Record<"BAR"|"GYM", number> = { BAR: 0, GYM: 0 };
+  private poiCapacity: Record<"BAR" | "GYM", number> = { BAR: 30, GYM: 15 };
+  private poiOccupancy: Record<"BAR" | "GYM", number> = { BAR: 0, GYM: 0 };
   private poiCenters = new Map<TileTag, Vec2>();
   density?: Uint16Array;
   private densityTimer = 0;
@@ -126,6 +128,7 @@ export class Engine {
     for (let i = 0; i < n; i++) {
       const a = new Agent(this.roomSpawns[i]);
       a.roomId = `R${i}`;
+      a.resetRandomType(); // set here agent
       this.setAgentState(a, "Breakfast", BREAKFAST_MINUTES);
       a.dest = null;
       a.path = null;
@@ -285,19 +288,42 @@ export class Engine {
     return center;
   }
 
+  private getTimeOfDay(): timeOfDay {
+    const hour = Math.floor(this.tod.minute / 60) % 24;
+    if (hour >= 6 && hour < 12) return "morning";
+    if (hour >= 12 && hour < 18) return "afternoon";
+    return "night";
+  }
+
   private pickWanderTarget(agent: Agent): Vec2 | null {
-    if (agent.needs.hunger > 0.8) {
-      const barCenter = this.getPoiCenter("BAR");
-      if (barCenter) {
-        const cx = Math.round(barCenter.x);
-        const cy = Math.round(barCenter.y);
-        for (let i = 0; i < 6; i++) {
-          const tx = cx + this.rng.int(-4, 4);
-          const ty = cy + this.rng.int(-4, 4);
-          if (!this.map.inBounds(tx, ty)) continue;
-          const tile = this.map.get(tx, ty);
-          if (tile.walkable) return { x: tx, y: ty };
-        }
+    const agentProps = AGENT_PROPS[agent.agentType];
+    const timeOfDay = this.getTimeOfDay();
+    const currentProps = agentProps[timeOfDay];
+    const gymCoeff = currentProps.gym * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
+    const barCoeff = currentProps.bar * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
+    const roomCoeff = currentProps.room * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
+
+    const center = gymCoeff > barCoeff && gymCoeff > roomCoeff ? "GYM"
+      : barCoeff > gymCoeff && barCoeff > roomCoeff ? "BAR"
+        : "ROOM";
+
+    const agentRoom = parseInt(agent.roomId?.split("R")[1] || "0", 10);
+    const isRoom = center === "ROOM";
+    const poiCenter = isRoom ? this.roomSpawns[agentRoom] : this.getPoiCenter(center);
+
+    if (isRoom && poiCenter) {
+      return { x: poiCenter.x, y: poiCenter.y };
+    }
+
+    if (poiCenter) {
+      const cx = isRoom ? poiCenter.x : Math.round(poiCenter.x);
+      const cy = isRoom ? poiCenter.y : Math.round(poiCenter.y);
+      for (let i = 0; i < 6; i++) {
+        const tx = cx + this.rng.int(-4, 4);
+        const ty = cy + this.rng.int(-4, 4);
+        if (!this.map.inBounds(tx, ty)) continue;
+        const tile = this.map.get(tx, ty);
+        if (tile.walkable) return { x: tx, y: ty };
       }
     }
 
