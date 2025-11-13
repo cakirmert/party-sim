@@ -1,7 +1,7 @@
 import { GridMap } from "./GridMap";
 import { aStar8 } from "./Pathfinder";
 import { Agent, AGENT_PROPS } from "./Agent";
-import type { EngineConfig, Vec2, BaseSpec, Tile, TileTag, AgentState } from "./Types";
+import type { EngineConfig, Vec2, BaseSpec, Tile, TileTag, AgentState, WanderTarget, PathMetric, BoundingBox } from "./Types";
 import { RNG } from "./RNG";
 import type { Command } from "./Commands";
 import { EventBus } from "./Events";
@@ -52,6 +52,10 @@ export class Engine {
   private lastPathRecomputes = 0;
   private lastDensityRecomputes = 0;
   private corridorTiles: Vec2[] = [];
+  public pathsMetrics: Array<PathMetric> = []
+  private maxPathsMetricsLength = 500;
+  public corridorBoundingBox?: BoundingBox;
+  public corridorDensityValues: Array<number> = []
 
   constructor(cfg: EngineConfig, baseSpec?: BaseSpec) {
     this.cfg = cfg;
@@ -295,7 +299,7 @@ export class Engine {
     return "night";
   }
 
-  private pickWanderTarget(agent: Agent): Vec2 | null {
+  private pickWanderTarget(agent: Agent): WanderTarget | null {
     const agentProps = AGENT_PROPS[agent.agentType];
     const timeOfDay = this.getTimeOfDay();
     const currentProps = agentProps[timeOfDay];
@@ -312,7 +316,7 @@ export class Engine {
     const poiCenter = isRoom ? this.roomSpawns[agentRoom] : this.getPoiCenter(center);
 
     if (isRoom && poiCenter) {
-      return { x: poiCenter.x, y: poiCenter.y };
+      return { point: { x: poiCenter.x, y: poiCenter.y }, room: center };
     }
 
     if (poiCenter) {
@@ -323,19 +327,20 @@ export class Engine {
         const ty = cy + this.rng.int(-4, 4);
         if (!this.map.inBounds(tx, ty)) continue;
         const tile = this.map.get(tx, ty);
-        if (tile.walkable) return { x: tx, y: ty };
+        if (tile.walkable) return { point: { x: tx, y: ty }, room: center };
       }
     }
 
     for (let i = 0; i < 8; i++) {
       const gx = this.rng.int(0, this.map.width - 1);
       const gy = this.rng.int(0, this.map.height - 1);
-      if (this.map.get(gx, gy).walkable) return { x: gx, y: gy };
+      if (this.map.get(gx, gy).walkable) return { point: { x: gx, y: gy }, room: center };
     }
     return null;
   }
 
-  private tryAssignMove(agent: Agent, target: Vec2 | null, state: AgentState = "Wander"): boolean {
+  private tryAssignMove(agent: Agent, wanderTarget: WanderTarget | null, state: AgentState = "Wander"): boolean {
+    const target = wanderTarget?.point;
     if (!target) return false;
     if (agent.pos.x === target.x && agent.pos.y === target.y) return false;
     agent.dest = { ...target };
@@ -343,6 +348,12 @@ export class Engine {
     const dy = agent.dest.y - agent.pos.y;
     agent.setFacing(dx, dy);
     agent.path = this.findPath(agent.pos, agent.dest) ?? null;
+    if (wanderTarget?.room !== 'ROOM' && wanderTarget?.room && agent.path?.length && this.pathsMetrics.length < this.maxPathsMetricsLength) {
+      this.pathsMetrics.push({
+        length: agent.path.length,
+        room: wanderTarget.room,
+      })
+    }
     agent.lastPathMapVersion = this.map.getVersion();
     if (agent.path && agent.path.length) {
       this.setAgentState(agent, state);
@@ -360,7 +371,7 @@ export class Engine {
     if (target && this.tryAssignMove(agent, target, "Wander")) return true;
     if (this.corridorTiles.length) {
       const choice = this.rng.pick(this.corridorTiles);
-      return this.tryAssignMove(agent, choice, "Wander");
+      return this.tryAssignMove(agent, { point: choice }, "Wander");
     }
     return false;
   }
@@ -500,6 +511,7 @@ export class Engine {
         // If user edited a wall in front, re-path
         if (!this.map.get(next.x, next.y).walkable) {
           if (a.dest) a.path = this.findPath(a.pos, a.dest) ?? null;
+          if (a.dest) console.log(this.findPath(a.pos, a.dest) ?? null)
           if (!a.path) break;
           continue;
         }
@@ -672,6 +684,19 @@ export class Engine {
       const tile = this.map.get(x, corridorMid);
       this.map.set(x, corridorMid, { ...tile, walkable: true, moveCost: 1, tag: "CORRIDOR" });
     }
+
+    const x0 = margin;
+    const y0 = corridorY0;
+    const x1 = this.map.width - margin - 1;
+    const y1 = corridorY1;
+
+    this.corridorBoundingBox = {
+      x0,
+      y0,
+      x1,
+      y1,
+      tiles: (x0 - x1) * (y0 - y1),
+    };
 
     return spawns.slice(0, numAgents);
   }

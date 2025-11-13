@@ -5,7 +5,7 @@ import { Engine } from "@/lib/engine/Engine";
 import { Camera } from "@/lib/engine/Camera";
 import type { BaseSpec, EngineConfig, Tile, TileTag, Vec2 } from "@/lib/engine/Types";
 import { useSimStore } from "@/lib/state/useSimStore";
-import { getAgentColor } from "./utils";
+import { getAgentColor, PEAK_TIMES } from "./utils";
 
 type Props = {
   engineRef: React.MutableRefObject<Engine | null>;
@@ -53,6 +53,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
   const paintDragStart = useRef<Vec2 | null>(null);
   const paintDragLastKey = useRef<string>("");
   const lockedToastRef = useRef(false);
+
   useEffect(() => {
     if (!editable) setPaintTool("wall");
   }, [editable]);
@@ -227,8 +228,9 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     for (let y = 0; y < engine.map.height; y++) {
       for (let x = 0; x < engine.map.width; x++) {
         const t = engine.map.get(x, y);
-        // base color
-        ctx.fillStyle = getTileColor(t);
+        if (t.tag)
+          // base color
+          ctx.fillStyle = getTileColor(t);
         ctx.fillRect(x * ppt, y * ppt, ppt, ppt);
 
         // slow tile indicator
@@ -377,6 +379,29 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
         ctx.fillText(label, cx, cy);
       }
       ctx.restore();
+    }
+
+    const minutes = engine.tod.minute;
+    let checkPeakTime = false;
+
+    PEAK_TIMES.forEach(([start, end]) => {
+      if (checkPeakTime) return;
+      if (minutes >= start && minutes < end) {
+        checkPeakTime = true;
+      }
+    });
+
+    if (engine.corridorBoundingBox && checkPeakTime) {
+      const agentsInCorridor = agents
+        .filter((a) =>
+          a.pos.x <= (engine.corridorBoundingBox?.x1 || 0)
+          && a.pos.x >= (engine.corridorBoundingBox?.x0 || 0)
+          && a.pos.y <= (engine.corridorBoundingBox?.y1 || 0)
+          && a.pos.y >= (engine.corridorBoundingBox?.y0 || 0)
+        )
+        .length
+
+        engine.corridorDensityValues.push(agentsInCorridor);
     }
 
     const statsSample = engine.getPerfStats();
@@ -600,10 +625,10 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
           <span>Painter:</span>
           <div className="flex items-center gap-2">
-            <button className={`px-2 py-1 rounded transition ${paintTool==="wall" ? "bg-blue-200 text-blue-900 font-semibold" : "bg-slate-200 hover:bg-slate-300"}`} onClick={()=>setPaintTool("wall")}>Wall</button>
-            <button className={`px-2 py-1 rounded transition ${paintTool==="slow" ? "bg-blue-200 text-blue-900 font-semibold" : "bg-slate-200 hover:bg-slate-300"}`} onClick={()=>setPaintTool("slow")}>Slow</button>
-            <button className={`px-2 py-1 rounded transition ${paintTool==="erase" ? "bg-blue-200 text-blue-900 font-semibold" : "bg-slate-200 hover:bg-slate-300"}`} onClick={()=>setPaintTool("erase")}>Erase</button>
-            <button className={`px-2 py-1 rounded transition ${paintTool==="tag" ? "bg-blue-200 text-blue-900 font-semibold" : "bg-slate-200 hover:bg-slate-300"}`} onClick={()=>setPaintTool("tag")}>Tag</button>
+            <button className={`px-2 py-1 rounded transition ${paintTool === "wall" ? "bg-blue-200 text-blue-900 font-semibold" : "bg-slate-200 hover:bg-slate-300"}`} onClick={() => setPaintTool("wall")}>Wall</button>
+            <button className={`px-2 py-1 rounded transition ${paintTool === "slow" ? "bg-blue-200 text-blue-900 font-semibold" : "bg-slate-200 hover:bg-slate-300"}`} onClick={() => setPaintTool("slow")}>Slow</button>
+            <button className={`px-2 py-1 rounded transition ${paintTool === "erase" ? "bg-blue-200 text-blue-900 font-semibold" : "bg-slate-200 hover:bg-slate-300"}`} onClick={() => setPaintTool("erase")}>Erase</button>
+            <button className={`px-2 py-1 rounded transition ${paintTool === "tag" ? "bg-blue-200 text-blue-900 font-semibold" : "bg-slate-200 hover:bg-slate-300"}`} onClick={() => setPaintTool("tag")}>Tag</button>
             {paintTool === "tag" && (
               <select
                 className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700 shadow-sm"
@@ -628,20 +653,20 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
           </div>
           <span className="text-slate-500">Hold Space/MMB to pan, scroll to zoom. Shift+Click orders the first agent.</span>
           <div className="ml-auto flex items-center gap-2">
-            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={()=>zoomAtCenter(0.9)}>Zoom -</button>
-            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={()=>zoomAtCenter(1.1)}>Zoom +</button>
+            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => zoomAtCenter(0.9)}>Zoom -</button>
+            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => zoomAtCenter(1.1)}>Zoom +</button>
             <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={resetCamera}>Reset Camera</button>
-            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={()=>setSmoothRender(s=>!s)}>{smoothRender ? "Smooth On" : "Smooth Off"}</button>
+            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => setSmoothRender(s => !s)}>{smoothRender ? "Smooth On" : "Smooth Off"}</button>
           </div>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
           <span>Hold Space/MMB to pan, scroll to zoom. Shift+Click orders the first agent.</span>
           <div className="ml-auto flex items-center gap-2">
-            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={()=>zoomAtCenter(0.9)}>Zoom -</button>
-            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={()=>zoomAtCenter(1.1)}>Zoom +</button>
+            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => zoomAtCenter(0.9)}>Zoom -</button>
+            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => zoomAtCenter(1.1)}>Zoom +</button>
             <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={resetCamera}>Reset Camera</button>
-            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={()=>setSmoothRender(s=>!s)}>{smoothRender ? "Smooth On" : "Smooth Off"}</button>
+            <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => setSmoothRender(s => !s)}>{smoothRender ? "Smooth On" : "Smooth Off"}</button>
           </div>
         </div>
       )}
@@ -652,7 +677,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
       >
         <canvas
           ref={canvasRef}
-          onMouseDown={(e)=>{ handleCanvasDown(e); handleClickSelect(e); }}
+          onMouseDown={(e) => { handleCanvasDown(e); handleClickSelect(e); }}
           onMouseMove={handleCanvasMove}
           onMouseUp={handleCanvasUp}
           onMouseLeave={handleCanvasUp}

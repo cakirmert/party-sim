@@ -6,6 +6,7 @@ import { Engine } from "@/lib/engine/Engine";
 import { GridMap } from "@/lib/engine/GridMap";
 import { AGENT_TYPES } from "@/lib/engine/Agent";
 import { getAgentColor } from "./utils";
+import { MetricsMap } from "@/lib/engine/Types";
 
 type Props = { engineRef: React.MutableRefObject<Engine | null> };
 
@@ -32,6 +33,51 @@ export default function UIControls({ engineRef }: Props) {
     if (!eng) return;
     setPaused(true);
     eng.stepOnce();
+  };
+
+  const calculateC2 = (): number => {
+    const eng = engineRef.current;
+    const metrics: MetricsMap = {};
+
+    eng?.pathsMetrics.forEach((pm) => {
+      if (!metrics[pm.room!]) metrics[pm.room!] = { totalLength: 0, count: 0 };
+      metrics[pm.room!].totalLength += pm.length;
+      metrics[pm.room!].count += 1;
+    });
+
+    let c2: number = 0;
+    let totalCount: number = 0;
+
+    Object.keys(metrics).forEach((room) => {
+      const totalLength = metrics[room].totalLength;
+      const weight = metrics[room].count;
+      c2 += (totalLength * weight);
+      totalCount += weight;
+    });
+
+    c2 /= totalCount;
+
+    return c2;
+  };
+
+  const calculateC3 = (): number => {
+    const eng = engineRef.current;
+    const densities = eng?.corridorDensityValues;
+    let densitiesAverage = 0;
+
+    densities?.forEach((d) => {
+      densitiesAverage += d;
+    })
+
+    densitiesAverage /= densities?.length || 1;
+
+    return densitiesAverage / (eng?.corridorBoundingBox?.tiles || 1);
+  };
+
+  const calculateMetrics = () => {
+    const c2 = calculateC2();
+    const c3 = calculateC3();
+    console.log({ c2, c3 });
   };
 
   return (
@@ -91,6 +137,11 @@ export default function UIControls({ engineRef }: Props) {
           a.href = url; a.download = "map.json"; a.click();
           URL.revokeObjectURL(url);
         }}>Save Map</button>
+
+        <button className="px-2 py-1 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 transition" onClick={calculateMetrics}>
+          Get Metrics
+        </button>
+
 
         <input ref={fileRef} type="file" accept="application/json" className="hidden"
           onChange={async (e) => {
