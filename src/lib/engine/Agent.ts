@@ -26,10 +26,13 @@ export class Agent extends Entity {
   pendingWander = true;
   moveProgress = 0;
   agentType: AgentType = "Balanced";
+  recentTiles: Vec2[] = [];
+  stuckTicks = 0;
 
   constructor(pos: Vec2) {
     super();
     this.pos = { ...pos };
+    this.recentTiles.push({ ...this.pos });
   }
 
   setFacing(dx: number, dy: number) {

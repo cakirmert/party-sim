@@ -10,6 +10,17 @@ import { TimeOfDay } from "./TimeOfDay";
 const BREAKFAST_MINUTES = 30;
 const POI_DWELL_MIN = 10;
 const POI_DWELL_MAX = 20;
+const RECENT_TILE_HISTORY = 6;
+const STUCK_SEARCH_TICKS = 2;
+const LOCAL_SEARCH_RADIUS = 0; // 0 => unlimited
+const LOCAL_SEARCH_MAX_NODES = 4000;
+const RECENT_TILE_PENALTY = 0.35;
+const MOVE_DIRS: Vec2[] = [
+  { x: 1, y: 0 }, { x: -1, y: 0 },
+  { x: 0, y: 1 }, { x: 0, y: -1 },
+  { x: 1, y: 1 }, { x: 1, y: -1 },
+  { x: -1, y: 1 }, { x: -1, y: -1 },
+];
 
 /** Off-map tracking entry (for UI "Out List"). */
 export interface OutRecord {
@@ -64,6 +75,10 @@ export class Engine {
     this.map = baseSpec
       ? GridMap.buildFromSpec(cfg.grid, baseSpec)
       : new GridMap(cfg.grid, { walkable: true, moveCost: 1, tag: "BUILDABLE" });
+  }
+
+  private keyOf(pos: Vec2): string {
+    return `${pos.x}:${pos.y}`;
   }
 
   // ——— Public getters ———
@@ -130,6 +145,8 @@ export class Engine {
       a.resetRandomType(); // set here agent
       this.setAgentState(a, "Breakfast", BREAKFAST_MINUTES);
       a.dest = null;
+      a.stuckTicks = 0;
+      a.recentTiles = [{ ...a.pos }];
       a.lastMapVersion = mapVersion;
       this.agents.set(a.id, a);
       this.events.emit({ type: "AGENT_ADDED", id: a.id });
@@ -200,7 +217,13 @@ export class Engine {
         this.pathsMetrics.length = 0;
         // Invalidate outstanding moves
         const mapVersionAfterLoad = this.map.getVersion();
-        for (const a of this.agents.values()) { a.dest = null; a.moveProgress = 0; a.lastMapVersion = mapVersionAfterLoad; }
+        for (const a of this.agents.values()) {
+          a.dest = null;
+          a.moveProgress = 0;
+          a.stuckTicks = 0;
+          a.recentTiles = [{ ...a.pos }];
+          a.lastMapVersion = mapVersionAfterLoad;
+        }
         break;
       }
       case "MAP_SAVE_REQUEST": {
@@ -256,6 +279,7 @@ export class Engine {
     agent.lastMapVersion = this.map.getVersion();
     agent.pendingWander = true;
     agent.moveProgress = 0;
+    agent.stuckTicks = 0;
     return true;
   }
 
@@ -350,6 +374,7 @@ export class Engine {
     agent.lastMapVersion = this.map.getVersion();
     this.setAgentState(agent, state);
     agent.moveProgress = 0;
+    agent.stuckTicks = 0;
     return true;
   }
 
@@ -363,6 +388,13 @@ export class Engine {
     return false;
   }
 
+  private rememberTile(agent: Agent) {
+    agent.recentTiles.push({ x: agent.pos.x, y: agent.pos.y });
+    if (agent.recentTiles.length > RECENT_TILE_HISTORY) {
+      agent.recentTiles.shift();
+    }
+  }
+
   private chooseLocalStep(agent: Agent, occupied: Set<string>): Vec2 | null {
     const dest = agent.dest;
     if (!dest) return null;
@@ -373,26 +405,21 @@ export class Engine {
     const targetX = dx / currentDist;
     const targetY = dy / currentDist;
 
-    const directions: Vec2[] = [
-      { x: 1, y: 0 }, { x: -1, y: 0 },
-      { x: 0, y: 1 }, { x: 0, y: -1 },
-      { x: 1, y: 1 }, { x: 1, y: -1 },
-      { x: -1, y: 1 }, { x: -1, y: -1 },
-    ];
-
     const candidates: Array<{ dir: Vec2; dot: number; improves: boolean; nextDist: number }> = [];
-    for (const dir of directions) {
+    for (const dir of MOVE_DIRS) {
       const nx = agent.pos.x + dir.x;
       const ny = agent.pos.y + dir.y;
       if (!this.map.inBounds(nx, ny)) continue;
       const tile = this.map.get(nx, ny);
       if (!tile.walkable) continue;
-      const key = `${nx}:${ny}`;
+      const key = this.keyOf({ x: nx, y: ny });
       if (occupied.has(key)) continue;
       const nextDist = Math.hypot(dest.x - nx, dest.y - ny);
       const dot = dir.x * targetX + dir.y * targetY;
+      const visited = agent.recentTiles.some(t => t.x === nx && t.y === ny);
+      const score = dot - (visited ? RECENT_TILE_PENALTY : 0);
       const improves = nextDist < currentDist - 1e-6;
-      candidates.push({ dir, dot, improves, nextDist });
+      candidates.push({ dir, dot: score, improves, nextDist });
     }
 
     if (!candidates.length) return null;
@@ -403,6 +430,68 @@ export class Engine {
       return b.dot - a.dot;
     });
     return pool[0].dir;
+  }
+
+  private findLocalSearchStep(agent: Agent, occupied?: Set<string>): Vec2 | null {
+    if (!agent.dest) return null;
+    const start: Vec2 = { x: agent.pos.x, y: agent.pos.y };
+    const startKey = this.keyOf(start);
+    const destKey = this.keyOf(agent.dest);
+    const queue: Vec2[] = [start];
+    const prev = new Map<string, Vec2 | null>();
+    const posByKey = new Map<string, Vec2>();
+    prev.set(startKey, null);
+    posByKey.set(startKey, start);
+    let nodes = 0;
+    let bestKey = startKey;
+    let bestDist = Math.hypot(agent.dest.x - start.x, agent.dest.y - start.y);
+
+    while (queue.length && nodes < LOCAL_SEARCH_MAX_NODES) {
+      const current = queue.shift()!;
+      nodes++;
+      const currentKey = this.keyOf(current);
+      const dist = Math.hypot(agent.dest.x - current.x, agent.dest.y - current.y);
+      if (dist + 0.001 < bestDist) {
+        bestDist = dist;
+        bestKey = currentKey;
+      }
+      if (currentKey === destKey) {
+        bestKey = currentKey;
+        break;
+      }
+      for (const dir of MOVE_DIRS) {
+        const nx = current.x + dir.x;
+        const ny = current.y + dir.y;
+        if (LOCAL_SEARCH_RADIUS > 0) {
+          if (Math.abs(nx - start.x) > LOCAL_SEARCH_RADIUS || Math.abs(ny - start.y) > LOCAL_SEARCH_RADIUS) continue;
+        }
+        if (!this.map.inBounds(nx, ny)) continue;
+        const tile = this.map.get(nx, ny);
+        if (!tile.walkable) continue;
+        const next: Vec2 = { x: nx, y: ny };
+        const key = this.keyOf(next);
+        if (prev.has(key)) continue;
+        if (occupied && key !== destKey && occupied.has(key)) continue;
+        prev.set(key, current);
+        posByKey.set(key, next);
+        queue.push(next);
+      }
+    }
+
+    if (bestKey === startKey) return null;
+
+    let currentKey = bestKey;
+    let node = posByKey.get(currentKey);
+    if (!node) return null;
+    let previous = prev.get(currentKey);
+    while (previous && this.keyOf(previous) !== startKey) {
+      currentKey = this.keyOf(previous);
+      node = posByKey.get(currentKey);
+      if (!node) return null;
+      previous = prev.get(currentKey);
+    }
+    if (!node || !previous) return null;
+    return { x: node.x - start.x, y: node.y - start.y };
   }
 
   private rebuildDensityGrid() {
@@ -427,6 +516,7 @@ export class Engine {
         this.setAgentState(agent, "Idle");
         agent.dest = null;
         agent.lastMapVersion = this.map.getVersion();
+        agent.stuckTicks = 0;
         return;
       }
       this.poiOccupancy[key]++;
@@ -435,6 +525,7 @@ export class Engine {
     }
     agent.dest = null;
     agent.lastMapVersion = this.map.getVersion();
+    agent.stuckTicks = 0;
   }
 
   private handleArrival(agent: Agent): boolean {
@@ -453,6 +544,7 @@ export class Engine {
       this.setAgentState(agent, "Idle");
     }
     agent.lastMapVersion = this.map.getVersion();
+    agent.stuckTicks = 0;
     return true;
   }
 
@@ -495,9 +587,8 @@ export class Engine {
 
     // Agents update
     const occupiedTiles = new Set<string>();
-    const keyOf = (pos: Vec2) => `${pos.x}:${pos.y}`;
     for (const a of this.agents.values()) {
-      occupiedTiles.add(keyOf(a.pos));
+      occupiedTiles.add(this.keyOf(a.pos));
     }
 
     for (const a of this.agents.values()) {
@@ -527,6 +618,7 @@ export class Engine {
           a.dest = null;
           this.setAgentState(a, "Idle");
           a.moveProgress = 0;
+          a.stuckTicks = 0;
         }
       }
 
@@ -541,27 +633,56 @@ export class Engine {
       }
 
       let remaining = a.moveProgress + a.speed * dtSec;
+      let movedThisTick = false;
+      let blockedThisTick = false;
       while (remaining > 0 && a.dest) {
-        const step = this.chooseLocalStep(a, occupiedTiles);
-        if (!step) break;
+        let step = this.chooseLocalStep(a, occupiedTiles);
+        if (!step) {
+          blockedThisTick = true;
+          a.stuckTicks = Math.min(a.stuckTicks + 1, 1000);
+          if (a.stuckTicks >= STUCK_SEARCH_TICKS) {
+            step = this.findLocalSearchStep(a, occupiedTiles);
+            if (step) blockedThisTick = false;
+          }
+          if (!step) break;
+        } else {
+          blockedThisTick = false;
+        }
         const stepDist = (step.x !== 0 && step.y !== 0) ? Math.SQRT2 : 1;
         if (remaining + 1e-6 < stepDist) break;
         const next = { x: a.pos.x + step.x, y: a.pos.y + step.y };
         const tile = this.map.get(next.x, next.y);
         if (!tile.walkable) {
+          blockedThisTick = true;
+          a.stuckTicks = Math.min(a.stuckTicks + 1, 1000);
           break;
         }
-        const nextKey = keyOf(next);
-        occupiedTiles.delete(keyOf(a.pos));
+        const nextKey = this.keyOf(next);
+        if (occupiedTiles.has(nextKey)) {
+          blockedThisTick = true;
+          a.stuckTicks = Math.min(a.stuckTicks + 1, 1000);
+          break;
+        }
+        const currentKey = this.keyOf(a.pos);
+        occupiedTiles.delete(currentKey);
         occupiedTiles.add(nextKey);
         a.setFacing(step.x, step.y);
         a.pos = next;
+        this.rememberTile(a);
         remaining -= stepDist;
+        movedThisTick = true;
+        a.stuckTicks = 0;
 
         if (a.dest && a.pos.x === a.dest.x && a.pos.y === a.dest.y) {
           const stay = this.handleArrival(a);
           if (!stay) break;
         }
+      }
+      if (!movedThisTick && !blockedThisTick) {
+        a.stuckTicks = 0;
+      }
+      if (movedThisTick) {
+        a.stuckTicks = 0;
       }
       a.moveProgress = remaining;
     }
