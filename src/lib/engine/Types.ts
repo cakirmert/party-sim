@@ -1,5 +1,15 @@
 export type Vec2 = { x: number; y: number };
+export type WanderTarget = { point: Vec2, room?: string };
+export type PathMetric = { length: number, room?: string };
 export type Dir = 0|1|2|3|4|5|6|7; // N,NE,E,SE,S,SW,W,NW
+export type BoundingBox = { x0: number; y0: number; x1: number; y1: number; tiles: number };
+
+type RoomMetrics = {
+  totalLength: number;
+  count: number;
+};
+
+export type MetricsMap = Record<string, RoomMetrics>;
 
 export type TileTag =
   | "BUILDABLE"   // editable by map editor
