@@ -18,7 +18,7 @@ type InspectorSnapshot = {
   facing?: { x: number; y: number } | null;
   offMap?: { untilMinute: number; reason: string } | null;
   status: "in-world" | "off-map";
-  agentType: AgentType;
+  agentType?: AgentType;
 };
 
 export default function AgentInspector({ engineRef }: Props) {
@@ -63,7 +63,6 @@ export default function AgentInspector({ engineRef }: Props) {
           facing: null,
           offMap: { untilMinute: off.untilMinute, reason: off.reason },
           status: "off-map",
-          agentType: a.agentType,
         });
         return;
       }
@@ -98,11 +97,15 @@ export default function AgentInspector({ engineRef }: Props) {
       <div><b>Pos:</b> {snapshot.pos ? `(${snapshot.pos.x},${snapshot.pos.y})` : "-"}</div>
       <div><b>Dest:</b> {snapshot.dest ? `(${snapshot.dest.x},${snapshot.dest.y})` : "-"}</div>
       <div><b>Path len:</b> {snapshot.pathLen}</div>
-      <div><b>Agent Type:</b> {snapshot.agentType}</div>
+      <div><b>Path len:</b> {snapshot.pathLen}</div>
+      <div><b>Agent Type:</b> {snapshot.agentType ?? "-"}</div>
       <div><b>Facing:</b> {snapshot.facing ? `(${snapshot.facing.x.toFixed(2)}, ${snapshot.facing.y.toFixed(2)})` : "-"}</div>
-      {snapshot.offMap && (
-        <div><b>Off-map:</b> until {fmtTime(snapshot.offMap.untilMinute)} ({snapshot.offMap.reason})</div>
-      )}
+      <div>
+        <b>Off-map:</b>{" "}
+        {snapshot.offMap
+          ? `until ${fmtTime(snapshot.offMap.untilMinute)} (${snapshot.offMap.reason})`
+          : "-"}
+      </div>
       <div className="mt-2 text-xs text-slate-500">Tip: Pause first, then click an agent on the canvas to inspect.</div>
     </Shell>
   );

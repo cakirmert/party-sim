@@ -95,7 +95,8 @@ class MinHeap<T> {
   private down(i: number) {
     const a = this.a, cmp = this.cmp, n = a.length;
     while (true) {
-      let l = i * 2 + 1, r = l + 1, m = i;
+      const l = i * 2 + 1, r = l + 1;
+      let m = i;
       if (l < n && cmp(a[l], a[m]) < 0) m = l;
       if (r < n && cmp(a[r], a[m]) < 0) m = r;
       if (m === i) break;

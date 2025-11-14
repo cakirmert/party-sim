@@ -6,7 +6,9 @@ import { Engine } from "@/lib/engine/Engine";
 import { GridMap } from "@/lib/engine/GridMap";
 import { AGENT_TYPES } from "@/lib/engine/Agent";
 import { getAgentColor } from "./utils";
-import { MetricsMap } from "@/lib/engine/Types";
+import type { MetricsMap, SimSpeed } from "@/lib/engine/Types";
+
+const SPEED_OPTIONS: SimSpeed[] = [0.25, 0.5, 1, 2, 4, 8];
 
 type Props = { engineRef: React.MutableRefObject<Engine | null> };
 
@@ -93,11 +95,11 @@ export default function UIControls({ engineRef }: Props) {
       </button>
 
       <span className="ml-2 text-sm">Speed:</span>
-      {[0.25, 0.5, 1, 2, 4, 8].map(s => (
+      {SPEED_OPTIONS.map(s => (
         <button
           key={s}
           className={`px-2 py-1 rounded transition ${speed === s ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-800 hover:bg-slate-300"}`}
-          onClick={() => setSpeed(s as any)}>{s}×</button>
+          onClick={() => setSpeed(s)}>{s}×</button>
       ))}
 
       <span className="ml-4 text-sm">Agents:</span>
@@ -154,7 +156,8 @@ export default function UIControls({ engineRef }: Props) {
               const eng = engineRef.current!;
               eng["map"] = GridMap.fromJSON(json);
               setToast("Map loaded.");
-            } catch (err: any) {
+            } catch (error: unknown) {
+              console.error(error);
               setToast("Failed to load map.json (must include tiles).");
             }
           }} />

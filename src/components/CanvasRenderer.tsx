@@ -53,6 +53,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
   const paintDragStart = useRef<Vec2 | null>(null);
   const paintDragLastKey = useRef<string>("");
   const lockedToastRef = useRef(false);
+  const renderCanvasRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!editable) setPaintTool("wall");
@@ -77,12 +78,13 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
         const json: BaseSpecFile = await res.json();
         if (!json || !json.spec) throw new Error("Invalid base.json");
         setBaseSpec(json.spec);
-        eng.resetWorld(json.spec, agentCount);
+        const initialAgentCount = useSimStore.getState().agentCount;
+        eng.resetWorld(json.spec, initialAgentCount);
       } catch (e) {
         console.error("Failed to load /maps/base.json", e);
       }
     })();
-  }, []);
+  }, [engineRef]);
 
   useEffect(() => { engine?.setSpeed(speed); }, [engine, speed]);
   useEffect(() => { engine?.setPaused(paused); }, [engine, paused]);
@@ -98,12 +100,12 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     let raf = 0;
     const loop = (tMs: number) => {
       engine.advance(tMs / 1000);
-      renderCanvas();
+      renderCanvasRef.current();
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [engine, showPaths]);
+  }, [engine]);
 
   const [spaceDown, setSpaceDown] = useState(false);
   const panStart = useRef<{ x: number; y: number } | null>(null);
@@ -427,6 +429,8 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     renderMiniMap(cssW, cssH, ppt);
   }
 
+  renderCanvasRef.current = renderCanvas;
+
   function renderMiniMap(cssW: number, cssH: number, ppt: number) {
     if (!engine) return;
     const mini = miniCanvasRef.current;
@@ -497,10 +501,10 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     return { x, y };
   }
 
-  function isEditableTile(t: Tile) {
+  const isEditableTile = useCallback((t: Tile) => {
     if (editable) return true;
     return t.tag === "BUILDABLE";
-  }
+  }, [editable]);
 
   const paintTile = useCallback((x: number, y: number) => {
     if (!engine) return;
@@ -535,7 +539,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
       }
       engine.map.set(x, y, next);
     }
-  }, [editable, engine, paintTool, tagPaint]);
+  }, [editable, engine, isEditableTile, paintTool, setToast, tagPaint]);
 
   const paintRect = useCallback((start: Vec2, end: Vec2) => {
     if (!engine || !editable) return;
