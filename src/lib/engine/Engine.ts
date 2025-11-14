@@ -13,7 +13,8 @@ const POI_DWELL_MAX = 20;
 const RECENT_TILE_HISTORY = 6;
 const STUCK_SEARCH_TICKS = 2;
 const LOCAL_SEARCH_RADIUS = 0; // 0 => unlimited
-const LOCAL_SEARCH_MAX_NODES = 4000;
+const LOCAL_SEARCH_MAX_NODES = 12000;
+const NAV_SEARCH_MAX_NODES = 20000;
 const RECENT_TILE_PENALTY = 0.35;
 const MOVE_DIRS: Vec2[] = [
   { x: 1, y: 0 }, { x: -1, y: 0 },
@@ -144,8 +145,7 @@ export class Engine {
       a.roomId = `R${i}`;
       a.resetRandomType(); // set here agent
       this.setAgentState(a, "Breakfast", BREAKFAST_MINUTES);
-      a.dest = null;
-      a.stuckTicks = 0;
+      this.resetAgentTarget(a);
       a.recentTiles = [{ ...a.pos }];
       a.lastMapVersion = mapVersion;
       this.agents.set(a.id, a);
@@ -182,6 +182,7 @@ export class Engine {
         const dx = a.dest.x - a.pos.x, dy = a.dest.y - a.pos.y;
         a.setFacing(dx, dy);
         a.lastMapVersion = this.map.getVersion();
+        this.rebuildFlowField(a);
         const targetTag = tile.tag;
         if (targetTag === "EXIT") this.setAgentState(a, "GoingToExit");
         else this.setAgentState(a, "Wander");
@@ -218,9 +219,8 @@ export class Engine {
         // Invalidate outstanding moves
         const mapVersionAfterLoad = this.map.getVersion();
         for (const a of this.agents.values()) {
-          a.dest = null;
+          this.resetAgentTarget(a);
           a.moveProgress = 0;
-          a.stuckTicks = 0;
           a.recentTiles = [{ ...a.pos }];
           a.lastMapVersion = mapVersionAfterLoad;
         }
@@ -275,12 +275,21 @@ export class Engine {
     }
 
     this.setAgentState(agent, "Idle");
-    agent.dest = null;
+    this.resetAgentTarget(agent);
     agent.lastMapVersion = this.map.getVersion();
     agent.pendingWander = true;
     agent.moveProgress = 0;
     agent.stuckTicks = 0;
     return true;
+  }
+
+  private resetAgentTarget(agent: Agent) {
+    agent.dest = null;
+    agent.navQueue = [];
+    agent.flowField = null;
+    agent.flowFieldDest = null;
+    agent.flowFieldVersion = -1;
+    agent.stuckTicks = 0;
   }
 
   private getPoiCenter(tag: TileTag): Vec2 | null {
@@ -358,20 +367,22 @@ export class Engine {
     if (!this.map.inBounds(target.x, target.y)) return false;
     const tile = this.map.get(target.x, target.y);
     if (!tile.walkable) return false;
-    agent.dest = { ...target };
-    const dx = agent.dest.x - agent.pos.x;
-    const dy = agent.dest.y - agent.pos.y;
-    agent.setFacing(dx, dy);
-    if (wanderTarget?.room !== 'ROOM' && wanderTarget?.room && this.pathsMetrics.length < this.maxPathsMetricsLength) {
-      const approxLength = Math.hypot(dx, dy);
-      if (approxLength > 0) {
-        this.pathsMetrics.push({
-          length: approxLength,
-          room: wanderTarget.room,
-        });
-      }
+    let path = this.buildEgocentricRoute(agent, target);
+    if (!path || !path.length) {
+      path = this.planLocalPath(agent.pos, target) ?? [];
     }
-    agent.lastMapVersion = this.map.getVersion();
+    if (!path.length) return false;
+    agent.navQueue = path;
+    if (!this.advanceWaypoint(agent) || !agent.dest) {
+      this.resetAgentTarget(agent);
+      return false;
+    }
+    if (wanderTarget?.room !== 'ROOM' && wanderTarget?.room && this.pathsMetrics.length < this.maxPathsMetricsLength) {
+      this.pathsMetrics.push({
+        length: path.length,
+        room: wanderTarget.room,
+      });
+    }
     this.setAgentState(agent, state);
     agent.moveProgress = 0;
     agent.stuckTicks = 0;
@@ -395,6 +406,186 @@ export class Engine {
     }
   }
 
+  private findNearestTaggedTile(start: Vec2, tag: TileTag, maxRadius = 0): Vec2 | null {
+    if (!this.map.inBounds(start.x, start.y)) return null;
+    const queue: Vec2[] = [{ x: start.x, y: start.y }];
+    const distMap = new Map<string, number>();
+    const startKey = this.keyOf(start);
+    distMap.set(startKey, 0);
+    let qi = 0;
+    while (qi < queue.length) {
+      const pos = queue[qi++];
+      const posKey = this.keyOf(pos);
+      const dist = distMap.get(posKey)!;
+      const tile = this.map.get(pos.x, pos.y);
+      if (tile.tag === tag) return { ...pos };
+      if (maxRadius > 0 && dist >= maxRadius) continue;
+      for (const dir of MOVE_DIRS) {
+        const nx = pos.x + dir.x;
+        const ny = pos.y + dir.y;
+        if (!this.map.inBounds(nx, ny)) continue;
+        const key = this.keyOf({ x: nx, y: ny });
+        if (distMap.has(key)) continue;
+        const nextTile = this.map.get(nx, ny);
+        if (!nextTile.walkable) continue;
+        distMap.set(key, dist + 1);
+        queue.push({ x: nx, y: ny });
+      }
+    }
+    return null;
+  }
+
+  private planLocalPath(start: Vec2, goal: Vec2, maxNodes = NAV_SEARCH_MAX_NODES): Vec2[] | null {
+    if (!this.map.inBounds(start.x, start.y) || !this.map.inBounds(goal.x, goal.y)) return null;
+    const startKey = this.keyOf(start);
+    const goalKey = this.keyOf(goal);
+    const queue: Vec2[] = [{ ...start }];
+    const prev = new Map<string, Vec2 | null>();
+    const posByKey = new Map<string, Vec2>();
+    prev.set(startKey, null);
+    posByKey.set(startKey, { ...start });
+    let bestKey = startKey;
+    let bestDist = Math.hypot(goal.x - start.x, goal.y - start.y);
+    let nodes = 0;
+    while (queue.length && nodes < maxNodes) {
+      const current = queue.shift()!;
+      nodes++;
+      const currentKey = this.keyOf(current);
+      const dist = Math.hypot(goal.x - current.x, goal.y - current.y);
+      if (dist + 0.001 < bestDist) {
+        bestDist = dist;
+        bestKey = currentKey;
+      }
+      if (currentKey === goalKey) {
+        bestKey = currentKey;
+        break;
+      }
+      for (const dir of MOVE_DIRS) {
+        const nx = current.x + dir.x;
+        const ny = current.y + dir.y;
+        if (!this.map.inBounds(nx, ny)) continue;
+        const tile = this.map.get(nx, ny);
+        if (!tile.walkable) continue;
+        const next: Vec2 = { x: nx, y: ny };
+        const key = this.keyOf(next);
+        if (prev.has(key)) continue;
+        prev.set(key, current);
+        posByKey.set(key, next);
+        queue.push(next);
+      }
+    }
+    if (!prev.has(goalKey)) {
+      if (bestKey === startKey) return null;
+    } else {
+      bestKey = goalKey;
+    }
+    const path: Vec2[] = [];
+    let currentKey = bestKey;
+    let node = posByKey.get(currentKey);
+    if (!node) return null;
+    while (currentKey !== startKey) {
+      path.push({ x: node.x, y: node.y });
+      const parent = prev.get(currentKey);
+      if (!parent) break;
+      currentKey = this.keyOf(parent);
+      node = posByKey.get(currentKey);
+      if (!node) break;
+    }
+    path.reverse();
+    return path;
+  }
+
+  private buildEgocentricRoute(agent: Agent, finalTarget: Vec2): Vec2[] | null {
+    const waypoints: Vec2[] = [];
+    if (this.map.inBounds(agent.pos.x, agent.pos.y)) {
+      const startTile = this.map.get(agent.pos.x, agent.pos.y);
+      if (startTile.tag === "ROOM") {
+        const door = this.findNearestTaggedTile(agent.pos, "DOOR", 64);
+        if (door) waypoints.push(door);
+      }
+    }
+    if (this.map.inBounds(finalTarget.x, finalTarget.y)) {
+      const targetTile = this.map.get(finalTarget.x, finalTarget.y);
+      if (targetTile.tag === "ROOM") {
+        const door = this.findNearestTaggedTile(finalTarget, "DOOR", 64);
+        if (door) waypoints.push(door);
+      }
+    }
+    waypoints.push({ ...finalTarget });
+    const fullPath: Vec2[] = [];
+    let current = { ...agent.pos };
+    for (const waypoint of waypoints) {
+      const segment = this.planLocalPath(current, waypoint);
+      if (!segment || !segment.length) {
+        return null;
+      }
+      fullPath.push(...segment);
+      current = waypoint;
+    }
+    return fullPath;
+  }
+
+  private advanceWaypoint(agent: Agent): boolean {
+    while (agent.navQueue.length) {
+      const next = agent.navQueue.shift()!;
+      if (next.x === agent.pos.x && next.y === agent.pos.y) continue;
+      agent.dest = { ...next };
+      agent.lastMapVersion = this.map.getVersion();
+      this.rebuildFlowField(agent);
+      const dx = agent.dest.x - agent.pos.x;
+      const dy = agent.dest.y - agent.pos.y;
+      agent.setFacing(dx, dy);
+      agent.moveProgress = 0;
+      agent.stuckTicks = 0;
+      return true;
+    }
+    return false;
+  }
+
+  private rebuildFlowField(agent: Agent) {
+    if (!agent.dest) {
+      this.resetAgentTarget(agent);
+      return;
+    }
+    const width = this.map.width;
+    const height = this.map.height;
+    const size = width * height;
+    if (!agent.flowField || agent.flowField.length !== size) {
+      agent.flowField = new Uint16Array(size);
+    }
+    const field = agent.flowField;
+    field.fill(0xffff);
+    const dest = agent.dest;
+    if (!this.map.inBounds(dest.x, dest.y)) return;
+    const destIdx = this.map.index(dest.x, dest.y);
+    field[destIdx] = 0;
+    const queue: Vec2[] = [{ x: dest.x, y: dest.y }];
+    let qi = 0;
+    while (qi < queue.length && qi < LOCAL_SEARCH_MAX_NODES) {
+      const cur = queue[qi++];
+      const curIdx = this.map.index(cur.x, cur.y);
+      const base = field[curIdx];
+      for (const dir of MOVE_DIRS) {
+        const nx = cur.x + dir.x;
+        const ny = cur.y + dir.y;
+        if (!this.map.inBounds(nx, ny)) continue;
+        const tile = this.map.get(nx, ny);
+        if (!tile.walkable) continue;
+        const idx = this.map.index(nx, ny);
+        const existing = field[idx];
+        const stepCost = (dir.x !== 0 && dir.y !== 0 ? 14 : 10) + Math.max(0, tile.moveCost - 1) * 10;
+        const nextCost = base + stepCost;
+        if (nextCost >= 0xffff) continue;
+        if (nextCost < existing) {
+          field[idx] = nextCost;
+          queue.push({ x: nx, y: ny });
+        }
+      }
+    }
+    agent.flowFieldDest = { ...dest };
+    agent.flowFieldVersion = this.map.getVersion();
+  }
+
   private chooseLocalStep(agent: Agent, occupied: Set<string>): Vec2 | null {
     const dest = agent.dest;
     if (!dest) return null;
@@ -404,6 +595,8 @@ export class Engine {
     if (currentDist === 0) return null;
     const targetX = dx / currentDist;
     const targetY = dy / currentDist;
+    const field = agent.flowField;
+    const currentField = field ? field[this.map.index(agent.pos.x, agent.pos.y)] : 0xffff;
 
     const candidates: Array<{ dir: Vec2; dot: number; improves: boolean; nextDist: number }> = [];
     for (const dir of MOVE_DIRS) {
@@ -417,8 +610,17 @@ export class Engine {
       const nextDist = Math.hypot(dest.x - nx, dest.y - ny);
       const dot = dir.x * targetX + dir.y * targetY;
       const visited = agent.recentTiles.some(t => t.x === nx && t.y === ny);
-      const score = dot - (visited ? RECENT_TILE_PENALTY : 0);
-      const improves = nextDist < currentDist - 1e-6;
+      let fieldBonus = 0;
+      let fieldImproves = false;
+      if (field && currentField !== 0xffff) {
+        const neighborField = field[this.map.index(nx, ny)];
+        if (neighborField !== 0xffff) {
+          fieldImproves = neighborField < currentField;
+          fieldBonus = Math.max(0, currentField - neighborField) / 100;
+        }
+      }
+      const score = dot + fieldBonus - (visited ? RECENT_TILE_PENALTY : 0);
+      const improves = (fieldImproves) || nextDist < currentDist - 1e-6;
       candidates.push({ dir, dot: score, improves, nextDist });
     }
 
@@ -514,21 +716,25 @@ export class Engine {
       const key = tag;
       if (this.poiOccupancy[key] >= this.poiCapacity[key]) {
         this.setAgentState(agent, "Idle");
-        agent.dest = null;
+        this.resetAgentTarget(agent);
         agent.lastMapVersion = this.map.getVersion();
-        agent.stuckTicks = 0;
         return;
       }
       this.poiOccupancy[key]++;
       const poiState: AgentState = tag === "BAR" ? "AtBar" : "AtGym";
       this.setAgentState(agent, poiState, dwell);
     }
-    agent.dest = null;
+    this.resetAgentTarget(agent);
     agent.lastMapVersion = this.map.getVersion();
-    agent.stuckTicks = 0;
   }
 
   private handleArrival(agent: Agent): boolean {
+    if (agent.navQueue.length) {
+      if (this.advanceWaypoint(agent)) {
+        return true;
+      }
+      // No more waypoints; fall through to final arrival handling.
+    }
     const tile = this.map.get(agent.pos.x, agent.pos.y);
     if (tile.tag === "EXIT") {
       this.despawnToOffMap(agent, { x: agent.pos.x, y: agent.pos.y });
@@ -539,12 +745,11 @@ export class Engine {
       return true;
     }
 
-    agent.dest = null;
+    this.resetAgentTarget(agent);
     if (agent.state === "Wander" || agent.state === "GoingToExit" || agent.state === "Returning") {
       this.setAgentState(agent, "Idle");
     }
     agent.lastMapVersion = this.map.getVersion();
-    agent.stuckTicks = 0;
     return true;
   }
 
@@ -615,16 +820,22 @@ export class Engine {
         const mapVersion = this.map.getVersion();
         a.lastMapVersion = mapVersion;
         if (!this.map.inBounds(a.dest.x, a.dest.y) || !this.map.get(a.dest.x, a.dest.y).walkable) {
-          a.dest = null;
+          this.resetAgentTarget(a);
           this.setAgentState(a, "Idle");
           a.moveProgress = 0;
-          a.stuckTicks = 0;
+        }
+        if (a.dest) {
+          this.rebuildFlowField(a);
         }
       }
 
       if (a.dest && a.pos.x === a.dest.x && a.pos.y === a.dest.y) {
         const stay = this.handleArrival(a);
         if (!stay) continue;
+      }
+
+      if (!a.dest && a.navQueue.length) {
+        this.advanceWaypoint(a);
       }
 
       if (!a.dest) {

@@ -161,7 +161,7 @@ Performance Notes
 
 Fixed-step logic avoids frame-rate dependence.
 
-Movement is egocentric: agents decide one step at a time, react to nearby crowds, remember their last few tiles, and run small local searches when stuck so they can snake out of rooms without relying on a shared global path.
+Movement is egocentric: agents self-assign coarse waypoints (e.g., nearest dorm door, corridor span, target room), decide one step at a time, react to nearby crowds, remember their last few tiles, and run small local searches when stuck so they can snake out of rooms without relying on a shared global path.
 
 Arrays are re-used in hot loops where sensible.
 

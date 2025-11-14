@@ -28,6 +28,10 @@ export class Agent extends Entity {
   agentType: AgentType = "Balanced";
   recentTiles: Vec2[] = [];
   stuckTicks = 0;
+  flowField: Uint16Array | null = null;
+  flowFieldVersion = -1;
+  flowFieldDest: Vec2 | null = null;
+  navQueue: Vec2[] = [];
 
   constructor(pos: Vec2) {
     super();
