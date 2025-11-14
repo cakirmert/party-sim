@@ -23,9 +23,6 @@ P: pause / play
 
 .: step one tick (when paused)
 
-S: toggle path visualization
-
-Shift+Click: send the first agent to the clicked tile
 
 Agents input + “Reset @06:00”: regenerate dorm (LOCKED), respawn N agents in rooms, reset time to 06:00
 
@@ -85,6 +82,8 @@ BAR, GYM, OUTSIDE, EXIT, ROAD — hand-defined areas from base spec.
 
 No build cost exists in this project. moveCost strictly influences movement and A* weights (e.g., 1 = normal, 2 = slower / “sticky” floor).
 
+Agents occupy single tiles and block each other’s movement, preventing two agents from sharing the same space.
+
 Determinism
 
 Fixed-step logic (baseTickRate, default 20/s) independent from render FPS.
@@ -141,13 +140,13 @@ Camera provides zoomAt(...), screenToWorld(...), worldToScreen(...), and clamps 
 UI Overview
 
 UIControls
-Pause/Play, Step, Speed, Agent Count + Reset @06:00, Save/Load Map, Path toggle.
+Pause/Play, Step, Speed, Agent Count + Reset @06:00, Save/Load Map.
 
 CanvasRenderer
-Handles rendering, camera interaction, optional smooth rendering, and selection (when paused). Shift+Click orders the first agent to move.
+Handles rendering, camera interaction, optional smooth rendering, and selection (when paused).
 
 AgentInspector (paused)
-Shows id, room, position, facing, destination, path length, or off-map status.
+Shows id, room, position, facing, destination, or off-map status.
 
 OutList
 Live table of agents off-map with reason and ETA.
@@ -162,7 +161,7 @@ Performance Notes
 
 Fixed-step logic avoids frame-rate dependence.
 
-Avoid pathfinding every tick; only re-path on target change or if walls change in the path.
+Movement is egocentric: agents decide one step at a time, reacting to obstacles locally to avoid gridlock.
 
 Arrays are re-used in hot loops where sensible.
 

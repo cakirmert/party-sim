@@ -14,7 +14,6 @@ type InspectorSnapshot = {
   roomId?: string;
   pos?: Vec2 | null;
   dest?: Vec2 | null;
-  pathLen: number;
   facing?: { x: number; y: number } | null;
   offMap?: { untilMinute: number; reason: string } | null;
   status: "in-world" | "off-map";
@@ -43,7 +42,6 @@ export default function AgentInspector({ engineRef }: Props) {
           roomId: a.roomId,
           pos: a.pos,
           dest: a.dest,
-          pathLen: a.path?.length ?? 0,
           facing: a.facing,
           offMap: a.offMap ?? null,
           status: "in-world",
@@ -59,7 +57,6 @@ export default function AgentInspector({ engineRef }: Props) {
           roomId: undefined,
           pos: null,
           dest: null,
-          pathLen: 0,
           facing: null,
           offMap: { untilMinute: off.untilMinute, reason: off.reason },
           status: "off-map",
@@ -96,8 +93,6 @@ export default function AgentInspector({ engineRef }: Props) {
       <div><b>State:</b> {snapshot.state}</div>
       <div><b>Pos:</b> {snapshot.pos ? `(${snapshot.pos.x},${snapshot.pos.y})` : "-"}</div>
       <div><b>Dest:</b> {snapshot.dest ? `(${snapshot.dest.x},${snapshot.dest.y})` : "-"}</div>
-      <div><b>Path len:</b> {snapshot.pathLen}</div>
-      <div><b>Path len:</b> {snapshot.pathLen}</div>
       <div><b>Agent Type:</b> {snapshot.agentType ?? "-"}</div>
       <div><b>Facing:</b> {snapshot.facing ? `(${snapshot.facing.x.toFixed(2)}, ${snapshot.facing.y.toFixed(2)})` : "-"}</div>
       <div>

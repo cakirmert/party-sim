@@ -45,7 +45,7 @@ export default function Page() {
     <main className="max-w-[1200px] mx-auto p-4 flex flex-col gap-3">
       <h1 className="text-2xl font-bold text-slate-800">Party Simulation</h1>
       <p className="text-sm text-slate-600">
-        The dorm layout is generated automatically for the chosen agent count. Use <b>Reset @06:00</b> after changing the count to rebuild rooms and respawn everyone. Shift+Click moves the first agent. Hold Space/MMB to pan. Wheel to zoom.
+        The dorm layout is generated automatically for the chosen agent count. Use <b>Reset @06:00</b> after changing the count to rebuild rooms and respawn everyone. Agents move autonomously one tile at a time and will sidestep when blocked. Hold Space/MMB to pan. Wheel to zoom.
       </p>
       <div>
         <Link href="/map-editor" className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-white border border-slate-200 text-sm text-blue-600 shadow-sm hover:bg-slate-100">

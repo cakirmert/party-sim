@@ -1,5 +1,4 @@
 import { GridMap } from "./GridMap";
-import { aStar8 } from "./Pathfinder";
 import { Agent, AGENT_PROPS } from "./Agent";
 import type { EngineConfig, Vec2, BaseSpec, Tile, TileTag, AgentState, WanderTarget, PathMetric, BoundingBox } from "./Types";
 import { RNG } from "./RNG";
@@ -45,11 +44,9 @@ export class Engine {
   density?: Uint16Array;
   private densityTimer = 0;
   private densityRecomputesThisSecond = 0;
-  private pathRecomputesThisSecond = 0;
   private perfTimer = 0;
   private ticksThisSecond = 0;
   private lastTicksPerSecond = 0;
-  private lastPathRecomputes = 0;
   private lastDensityRecomputes = 0;
   private corridorTiles: Vec2[] = [];
   public pathsMetrics: Array<PathMetric> = []
@@ -76,7 +73,6 @@ export class Engine {
   getPerfStats() {
     return {
       ticksPerSecond: this.lastTicksPerSecond,
-      pathRecomputesPerSecond: this.lastPathRecomputes,
       densityRecomputesPerSecond: this.lastDensityRecomputes,
     };
   }
@@ -112,14 +108,13 @@ export class Engine {
     this.poiOccupancy.GYM = 0;
     this.poiCenters.clear();
     this.corridorTiles = [];
+    this.pathsMetrics.length = 0;
     this.density = undefined;
     this.densityTimer = 0;
     this.densityRecomputesThisSecond = 0;
-    this.pathRecomputesThisSecond = 0;
     this.perfTimer = 0;
     this.ticksThisSecond = 0;
     this.lastTicksPerSecond = 0;
-    this.lastPathRecomputes = 0;
     this.lastDensityRecomputes = 0;
     // Stable randomness for same seed
     // (we could allow user to change seed—left as cfg.seed)
@@ -135,18 +130,10 @@ export class Engine {
       a.resetRandomType(); // set here agent
       this.setAgentState(a, "Breakfast", BREAKFAST_MINUTES);
       a.dest = null;
-      a.path = null;
-      a.lastPathMapVersion = mapVersion;
+      a.lastMapVersion = mapVersion;
       this.agents.set(a.id, a);
       this.events.emit({ type: "AGENT_ADDED", id: a.id });
     }
-  }
-
-  /** Simple 8-dir A* wrapper */
-  findPath(from: Vec2, to: Vec2) {
-    const path = aStar8(this.map, from, to);
-    this.pathRecomputesThisSecond++;
-    return path;
   }
 
   /** Dispatch command interface for UI and systems. */
@@ -162,7 +149,7 @@ export class Engine {
       case "SPAWN_AGENT": {
         const a = new Agent(cmd.pos);
         this.setAgentState(a, "Idle");
-        a.lastPathMapVersion = this.map.getVersion();
+        a.lastMapVersion = this.map.getVersion();
         this.agents.set(a.id, a);
         this.events.emit({ type: "AGENT_ADDED", id: a.id });
         break;
@@ -170,15 +157,18 @@ export class Engine {
       case "MOVE_AGENT_TO": {
         const a = this.agents.get(cmd.id);
         if (!a) return;
+        if (!this.map.inBounds(cmd.dest.x, cmd.dest.y)) return;
+        const tile = this.map.get(cmd.dest.x, cmd.dest.y);
+        if (!tile.walkable) return;
+        if (a.pos.x === cmd.dest.x && a.pos.y === cmd.dest.y) return;
         a.dest = { ...cmd.dest };
         const dx = a.dest.x - a.pos.x, dy = a.dest.y - a.pos.y;
         a.setFacing(dx, dy);
-        a.path = this.findPath(a.pos, a.dest) ?? null;
-        a.lastPathMapVersion = this.map.getVersion();
-        const targetTag = this.map.inBounds(a.dest.x, a.dest.y) ? this.map.get(a.dest.x, a.dest.y).tag : undefined;
+        a.lastMapVersion = this.map.getVersion();
+        const targetTag = tile.tag;
         if (targetTag === "EXIT") this.setAgentState(a, "GoingToExit");
         else this.setAgentState(a, "Wander");
-        this.events.emit({ type: "AGENT_REPATHED", id: a.id });
+        a.moveProgress = 0;
         break;
       }
       case "MAP_TOGGLE_WALL": {
@@ -202,16 +192,15 @@ export class Engine {
         this.density = undefined;
         this.densityTimer = 0;
         this.densityRecomputesThisSecond = 0;
-        this.pathRecomputesThisSecond = 0;
         this.perfTimer = 0;
         this.ticksThisSecond = 0;
         this.lastTicksPerSecond = 0;
-        this.lastPathRecomputes = 0;
         this.lastDensityRecomputes = 0;
         this.corridorTiles = [];
-        // invalidate all paths
+        this.pathsMetrics.length = 0;
+        // Invalidate outstanding moves
         const mapVersionAfterLoad = this.map.getVersion();
-        for (const a of this.agents.values()) { a.path = null; a.dest = null; a.moveProgress = 0; a.lastPathMapVersion = mapVersionAfterLoad; }
+        for (const a of this.agents.values()) { a.dest = null; a.moveProgress = 0; a.lastMapVersion = mapVersionAfterLoad; }
         break;
       }
       case "MAP_SAVE_REQUEST": {
@@ -264,8 +253,7 @@ export class Engine {
 
     this.setAgentState(agent, "Idle");
     agent.dest = null;
-    agent.path = null;
-    agent.lastPathMapVersion = this.map.getVersion();
+    agent.lastMapVersion = this.map.getVersion();
     agent.pendingWander = true;
     agent.moveProgress = 0;
     return true;
@@ -343,27 +331,26 @@ export class Engine {
     const target = wanderTarget?.point;
     if (!target) return false;
     if (agent.pos.x === target.x && agent.pos.y === target.y) return false;
+    if (!this.map.inBounds(target.x, target.y)) return false;
+    const tile = this.map.get(target.x, target.y);
+    if (!tile.walkable) return false;
     agent.dest = { ...target };
     const dx = agent.dest.x - agent.pos.x;
     const dy = agent.dest.y - agent.pos.y;
     agent.setFacing(dx, dy);
-    agent.path = this.findPath(agent.pos, agent.dest) ?? null;
-    if (wanderTarget?.room !== 'ROOM' && wanderTarget?.room && agent.path?.length && this.pathsMetrics.length < this.maxPathsMetricsLength) {
-      this.pathsMetrics.push({
-        length: agent.path.length,
-        room: wanderTarget.room,
-      })
+    if (wanderTarget?.room !== 'ROOM' && wanderTarget?.room && this.pathsMetrics.length < this.maxPathsMetricsLength) {
+      const approxLength = Math.hypot(dx, dy);
+      if (approxLength > 0) {
+        this.pathsMetrics.push({
+          length: approxLength,
+          room: wanderTarget.room,
+        });
+      }
     }
-    agent.lastPathMapVersion = this.map.getVersion();
-    if (agent.path && agent.path.length) {
-      this.setAgentState(agent, state);
-      agent.moveProgress = 0;
-      this.events.emit({ type: "AGENT_REPATHED", id: agent.id });
-      return true;
-    }
-    agent.dest = null;
-    agent.path = null;
-    return false;
+    agent.lastMapVersion = this.map.getVersion();
+    this.setAgentState(agent, state);
+    agent.moveProgress = 0;
+    return true;
   }
 
   private forceWander(agent: Agent): boolean {
@@ -374,6 +361,48 @@ export class Engine {
       return this.tryAssignMove(agent, { point: choice }, "Wander");
     }
     return false;
+  }
+
+  private chooseLocalStep(agent: Agent, occupied: Set<string>): Vec2 | null {
+    const dest = agent.dest;
+    if (!dest) return null;
+    const dx = dest.x - agent.pos.x;
+    const dy = dest.y - agent.pos.y;
+    const currentDist = Math.hypot(dx, dy);
+    if (currentDist === 0) return null;
+    const targetX = dx / currentDist;
+    const targetY = dy / currentDist;
+
+    const directions: Vec2[] = [
+      { x: 1, y: 0 }, { x: -1, y: 0 },
+      { x: 0, y: 1 }, { x: 0, y: -1 },
+      { x: 1, y: 1 }, { x: 1, y: -1 },
+      { x: -1, y: 1 }, { x: -1, y: -1 },
+    ];
+
+    const candidates: Array<{ dir: Vec2; dot: number; improves: boolean; nextDist: number }> = [];
+    for (const dir of directions) {
+      const nx = agent.pos.x + dir.x;
+      const ny = agent.pos.y + dir.y;
+      if (!this.map.inBounds(nx, ny)) continue;
+      const tile = this.map.get(nx, ny);
+      if (!tile.walkable) continue;
+      const key = `${nx}:${ny}`;
+      if (occupied.has(key)) continue;
+      const nextDist = Math.hypot(dest.x - nx, dest.y - ny);
+      const dot = dir.x * targetX + dir.y * targetY;
+      const improves = nextDist < currentDist - 1e-6;
+      candidates.push({ dir, dot, improves, nextDist });
+    }
+
+    if (!candidates.length) return null;
+    const improving = candidates.filter(c => c.improves);
+    const pool = improving.length ? improving : candidates;
+    pool.sort((a, b) => {
+      if (b.dot === a.dot) return a.nextDist - b.nextDist;
+      return b.dot - a.dot;
+    });
+    return pool[0].dir;
   }
 
   private rebuildDensityGrid() {
@@ -397,8 +426,7 @@ export class Engine {
       if (this.poiOccupancy[key] >= this.poiCapacity[key]) {
         this.setAgentState(agent, "Idle");
         agent.dest = null;
-        agent.path = null;
-        agent.lastPathMapVersion = this.map.getVersion();
+        agent.lastMapVersion = this.map.getVersion();
         return;
       }
       this.poiOccupancy[key]++;
@@ -406,8 +434,7 @@ export class Engine {
       this.setAgentState(agent, poiState, dwell);
     }
     agent.dest = null;
-    agent.path = null;
-    agent.lastPathMapVersion = this.map.getVersion();
+    agent.lastMapVersion = this.map.getVersion();
   }
 
   private handleArrival(agent: Agent): boolean {
@@ -422,11 +449,10 @@ export class Engine {
     }
 
     agent.dest = null;
-    agent.path = null;
     if (agent.state === "Wander" || agent.state === "GoingToExit" || agent.state === "Returning") {
       this.setAgentState(agent, "Idle");
     }
-    agent.lastPathMapVersion = this.map.getVersion();
+    agent.lastMapVersion = this.map.getVersion();
     return true;
   }
 
@@ -459,7 +485,7 @@ export class Engine {
           // Respawn
           const a = new Agent({ ...rec.exitPos });
           this.setAgentState(a, "Returning");
-          a.lastPathMapVersion = this.map.getVersion();
+          a.lastMapVersion = this.map.getVersion();
           this.agents.set(a.id, a);
           this.events.emit({ type: "AGENT_RESPAWNED", id: a.id });
           this.outList.splice(i, 1);
@@ -468,6 +494,12 @@ export class Engine {
     }
 
     // Agents update
+    const occupiedTiles = new Set<string>();
+    const keyOf = (pos: Vec2) => `${pos.x}:${pos.y}`;
+    for (const a of this.agents.values()) {
+      occupiedTiles.add(keyOf(a.pos));
+    }
+
     for (const a of this.agents.values()) {
       this.updateAgentNeeds(a);
       if (!this.updateAgentTimers(a)) {
@@ -488,58 +520,47 @@ export class Engine {
         }
       }
 
-      if (a.dest && a.lastPathMapVersion !== this.map.getVersion()) {
-        const newPath = this.findPath(a.pos, a.dest) ?? null;
-        a.path = newPath;
-        a.lastPathMapVersion = this.map.getVersion();
-        if (newPath) {
-          this.events.emit({ type: "AGENT_REPATHED", id: a.id });
-        } else {
+      if (a.dest && a.lastMapVersion !== this.map.getVersion()) {
+        const mapVersion = this.map.getVersion();
+        a.lastMapVersion = mapVersion;
+        if (!this.map.inBounds(a.dest.x, a.dest.y) || !this.map.get(a.dest.x, a.dest.y).walkable) {
           a.dest = null;
           this.setAgentState(a, "Idle");
+          a.moveProgress = 0;
         }
       }
 
-      // If no path, continue
-      if (!a.path || a.path.length === 0) continue;
+      if (a.dest && a.pos.x === a.dest.x && a.pos.y === a.dest.y) {
+        const stay = this.handleArrival(a);
+        if (!stay) continue;
+      }
 
-      // Move along path, consuming whole tiles based on speed
-      let remaining = a.moveProgress + a.speed * dtSec; // tiles per tick
-      while (remaining > 0 && a.path && a.path.length > 0) {
-        const next = a.path[0];
+      if (!a.dest) {
+        a.moveProgress = 0;
+        continue;
+      }
 
-        // If user edited a wall in front, re-path
-        if (!this.map.get(next.x, next.y).walkable) {
-          if (a.dest) a.path = this.findPath(a.pos, a.dest) ?? null;
-          if (a.dest) console.log(this.findPath(a.pos, a.dest) ?? null)
-          if (!a.path) break;
-          continue;
-        }
-
-        if (a.pos.x === next.x && a.pos.y === next.y) {
-          a.path.shift();
-          continue;
-        }
-        const dx = next.x - a.pos.x;
-        const dy = next.y - a.pos.y;
-        const stepDist = (dx !== 0 && dy !== 0) ? Math.SQRT2 : 1;
-        if (remaining >= stepDist) {
-          a.setFacing(dx, dy);
-          a.pos = { x: next.x, y: next.y };
-          remaining -= stepDist;
-          a.path.shift();
-
-          // Arrival handling
-          if (!a.path || a.path.length === 0) {
-            if (a.dest && a.pos.x === a.dest.x && a.pos.y === a.dest.y) {
-              const stay = this.handleArrival(a);
-              if (!stay) break;
-            }
-            break;
-          }
-        } else {
-          // Not enough time this tick to reach next tile
+      let remaining = a.moveProgress + a.speed * dtSec;
+      while (remaining > 0 && a.dest) {
+        const step = this.chooseLocalStep(a, occupiedTiles);
+        if (!step) break;
+        const stepDist = (step.x !== 0 && step.y !== 0) ? Math.SQRT2 : 1;
+        if (remaining + 1e-6 < stepDist) break;
+        const next = { x: a.pos.x + step.x, y: a.pos.y + step.y };
+        const tile = this.map.get(next.x, next.y);
+        if (!tile.walkable) {
           break;
+        }
+        const nextKey = keyOf(next);
+        occupiedTiles.delete(keyOf(a.pos));
+        occupiedTiles.add(nextKey);
+        a.setFacing(step.x, step.y);
+        a.pos = next;
+        remaining -= stepDist;
+
+        if (a.dest && a.pos.x === a.dest.x && a.pos.y === a.dest.y) {
+          const stay = this.handleArrival(a);
+          if (!stay) break;
         }
       }
       a.moveProgress = remaining;
@@ -554,8 +575,6 @@ export class Engine {
       this.perfTimer -= 1;
       this.lastTicksPerSecond = this.ticksThisSecond;
       this.ticksThisSecond = 0;
-      this.lastPathRecomputes = this.pathRecomputesThisSecond;
-      this.pathRecomputesThisSecond = 0;
       this.lastDensityRecomputes = this.densityRecomputesThisSecond;
       this.densityRecomputesThisSecond = 0;
     }

@@ -15,14 +15,13 @@ export type AgentType = typeof AGENT_TYPES[number];
 export class Agent extends Entity {
   pos: Vec2;
   dest: Vec2 | null = null;
-  path: Vec2[] | null = null;
   speed = 2; // tiles/sec
   facing = { x: 1, y: 0 };
   roomId?: string;
   state: AgentState = "Breakfast";
   offMap?: { untilMinute: number; reason: "Study" | "Work" | "Shop" };
   stateTimer = 0;
-  lastPathMapVersion = -1;
+  lastMapVersion = -1;
   needs: { hunger: number; energy: number; social: number } = { hunger: 0.6, energy: 1, social: 0.5 };
   pendingWander = true;
   moveProgress = 0;

@@ -31,7 +31,6 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
 
   const perfStatsRef = useRef({
     ticksPerSecond: 0,
-    pathRecomputesPerSecond: 0,
     densityRecomputesPerSecond: 0,
     agentCount: 0,
   });
@@ -43,7 +42,6 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
   const paused = useSimStore(s => s.paused);
   const agentCount = useSimStore(s => s.agentCount);
   const resetNonce = useSimStore(s => s.resetNonce);
-  const showPaths = useSimStore(s => s.showPaths);
   const selectedAgentId = useSimStore(s => s.selectedAgentId);
   const setSelectedAgentId = useSimStore(s => s.setSelectedAgentId);
   const setToast = useSimStore(s => s.setToast);
@@ -143,10 +141,6 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
         store.setPaused(true);
         const eng = engineRef.current;
         if (eng) eng.stepOnce();
-        e.preventDefault();
-      } else if (e.key === "s" || e.key === "S") {
-        const store = useSimStore.getState();
-        store.setShowPaths(!store.showPaths);
         e.preventDefault();
       } else if ((e.key === "+" || e.key === "=") && !e.ctrlKey && !e.metaKey) {
         zoomAtCenter(1.1);
@@ -313,16 +307,6 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
         seenIds?.add(a.id);
       }
 
-      if (showPaths && a.path && a.path.length) {
-        ctx.beginPath();
-        ctx.strokeStyle = "rgba(14, 116, 144, 0.75)";
-        ctx.lineWidth = 2 / camera.zoom;
-        ctx.moveTo((drawX + 0.5) * ppt, (drawY + 0.5) * ppt);
-        for (const p of a.path) ctx.lineTo((p.x + 0.5) * ppt, (p.y + 0.5) * ppt);
-        // use this to get the no o f pixels, a.path.length
-        ctx.stroke();
-      }
-
       const pad = 4;
       const baseX = drawX * ppt;
       const baseY = drawY * ppt;
@@ -409,14 +393,12 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     const statsSample = engine.getPerfStats();
     const nextStats = {
       ticksPerSecond: statsSample.ticksPerSecond,
-      pathRecomputesPerSecond: statsSample.pathRecomputesPerSecond,
       densityRecomputesPerSecond: statsSample.densityRecomputesPerSecond,
       agentCount: agents.length,
     };
     const currentStats = perfStatsRef.current;
     if (
       currentStats.ticksPerSecond !== nextStats.ticksPerSecond ||
-      currentStats.pathRecomputesPerSecond !== nextStats.pathRecomputesPerSecond ||
       currentStats.densityRecomputesPerSecond !== nextStats.densityRecomputesPerSecond ||
       currentStats.agentCount !== nextStats.agentCount
     ) {
@@ -567,12 +549,6 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     const tile = screenToTile(e);
     if (!tile) return;
 
-    if (e.shiftKey) {
-      const first = engine.getAgents()[0];
-      if (first) engine.dispatch({ type: "MOVE_AGENT_TO", id: first.id, dest: tile });
-      return;
-    }
-
     if (!editable) return;
 
     paintDragStart.current = tile;
@@ -655,7 +631,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
               </select>
             )}
           </div>
-          <span className="text-slate-500">Hold Space/MMB to pan, scroll to zoom. Shift+Click orders the first agent.</span>
+          <span className="text-slate-500">Hold Space/MMB to pan, scroll to zoom.</span>
           <div className="ml-auto flex items-center gap-2">
             <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => zoomAtCenter(0.9)}>Zoom -</button>
             <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => zoomAtCenter(1.1)}>Zoom +</button>
@@ -665,7 +641,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
-          <span>Hold Space/MMB to pan, scroll to zoom. Shift+Click orders the first agent.</span>
+          <span>Hold Space/MMB to pan, scroll to zoom.</span>
           <div className="ml-auto flex items-center gap-2">
             <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => zoomAtCenter(0.9)}>Zoom -</button>
             <button className="px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-100" onClick={() => zoomAtCenter(1.1)}>Zoom +</button>
@@ -698,7 +674,6 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
         <div className="pointer-events-none absolute left-3 top-3 z-10 rounded border border-slate-200 bg-white/90 px-2 py-1 text-xs font-mono text-slate-700 shadow-sm">
           <div>Ticks/s: {perfStats.ticksPerSecond}</div>
           <div>Agents: {perfStats.agentCount}</div>
-          <div>Path/s: {perfStats.pathRecomputesPerSecond}</div>
           <div>Density/s: {perfStats.densityRecomputesPerSecond}</div>
         </div>
       </div>

@@ -13,8 +13,6 @@ interface SimState {
   resetNonce: number;     // bump to request a full reset at 06:00
   bumpReset: () => void;
   // renderer / selection
-  showPaths: boolean;
-  setShowPaths: (v: boolean) => void;
   selectedAgentId?: string | null;
   setSelectedAgentId: (id: string | null) => void;
   // UI messages
@@ -33,8 +31,6 @@ export const useSimStore = create<SimState>((set) => ({
   resetNonce: 0,
   bumpReset: () => set((s) => ({ resetNonce: s.resetNonce + 1 })),
 
-  showPaths: true,
-  setShowPaths: (v) => set({ showPaths: v }),
   selectedAgentId: null,
   setSelectedAgentId: (id) => set({ selectedAgentId: id }),
 

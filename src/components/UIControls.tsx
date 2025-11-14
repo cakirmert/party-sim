@@ -22,9 +22,6 @@ export default function UIControls({ engineRef }: Props) {
   const setAgentCount = useSimStore(s => s.setAgentCount);
   const bumpReset = useSimStore(s => s.bumpReset);
 
-  const showPaths = useSimStore(s => s.showPaths);
-  const setShowPaths = useSimStore(s => s.setShowPaths);
-
   const setSelectedAgentId = useSimStore(s => s.setSelectedAgentId);
   const setToast = useSimStore(s => s.setToast);
 
@@ -57,6 +54,7 @@ export default function UIControls({ engineRef }: Props) {
       totalCount += weight;
     });
 
+    if (totalCount === 0) return 0;
     c2 /= totalCount;
 
     return c2;
@@ -111,11 +109,6 @@ export default function UIControls({ engineRef }: Props) {
       <button className="px-2 py-1 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 transition" onClick={() => bumpReset()}>
         Reset @06:00
       </button>
-
-      <label className="ml-4 text-sm flex items-center gap-2">
-        <input type="checkbox" checked={showPaths} onChange={(e) => setShowPaths(e.target.checked)} />
-        Show paths
-      </label>
 
       <div className="ml-auto flex items-center gap-2">
         <div className="ml-4 flex items-center gap-3">

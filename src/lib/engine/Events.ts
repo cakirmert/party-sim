@@ -1,7 +1,6 @@
 export type EngineEvent =
   | { type: "TICK"; tick: number }
   | { type: "AGENT_ADDED"; id: string }
-  | { type: "AGENT_REPATHED"; id: string }
   | { type: "AGENT_DESPAWNED"; id: string }
   | { type: "AGENT_RESPAWNED"; id: string };
 
