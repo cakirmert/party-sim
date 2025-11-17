@@ -1,5 +1,5 @@
 import { GridMap } from "./GridMap";
-import { Agent, AGENT_PROPS } from "./Agent";
+import { Agent, AGENT_PROPS, DAY_NAMES } from "./Agent";
 import type { EngineConfig, Vec2, BaseSpec, Tile, TileTag, AgentState, WanderTarget, PathMetric, BoundingBox } from "./Types";
 import { RNG } from "./RNG";
 import type { Command } from "./Commands";
@@ -323,7 +323,8 @@ export class Engine {
   private pickWanderTarget(agent: Agent): WanderTarget | null {
     const agentProps = AGENT_PROPS[agent.agentType];
     const timeOfDay = this.getTimeOfDay();
-    const currentProps = agentProps[timeOfDay];
+    const dayOfWeek = DAY_NAMES[this.tod.dayOfWeek];
+    const currentProps = agentProps[dayOfWeek][timeOfDay];
     const gymCoeff = currentProps.gym * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
     const barCoeff = currentProps.bar * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
     const roomCoeff = currentProps.room * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
@@ -770,6 +771,10 @@ export class Engine {
     this.densityTimer += dtSec;
     this.perfTimer += dtSec;
     this.ticksThisSecond++;
+
+    if (this.tod.minute == 0) {
+      this.tod.dayOfWeek = (this.tod.dayOfWeek + 1) % 7;
+    }
 
     // Handle off-map returns
     if (this.outList.length) {

@@ -8,6 +8,7 @@ import AgentInspector from "@/components/AgentInspector";
 import OutList from "@/components/OutList";
 import { useSimStore } from "@/lib/state/useSimStore";
 import type { Engine } from "@/lib/engine/Engine";
+import { DAY_NAMES } from "@/lib/engine/Agent";
 
 export default function Page() {
   const engineRef = useRef<Engine | null>(null);
@@ -15,6 +16,7 @@ export default function Page() {
   const setToast = useSimStore(s=>s.setToast);
   const paused = useSimStore(s=>s.paused);
   const [timeLabel, setTimeLabel] = useState("--:--:00");
+  const [dayLabel, setDayLabel] = useState<string>(DAY_NAMES[0]);
 
   // Auto-clear toasts
   useEffect(() => {
@@ -32,6 +34,7 @@ export default function Page() {
         const hh = Math.floor(minutes / 60).toString().padStart(2, "0");
         const mm = (minutes % 60).toString().padStart(2, "0");
         setTimeLabel(`${hh}:${mm}:00`);
+        setDayLabel(DAY_NAMES[eng.tod.dayOfWeek]);
       } else {
         setTimeLabel("--:--:00");
       }
@@ -55,7 +58,8 @@ export default function Page() {
 
       <UIControls engineRef={engineRef} />
       <div className="flex items-center gap-3 text-sm">
-        <span className="px-3 py-1 rounded bg-white/80 border border-slate-200 text-slate-700 shadow-sm font-mono text-lg" style={{ minWidth: "8ch", display: "inline-block" }}>{timeLabel}</span>
+        <span className="px-3 py-1 rounded bg-white/80 border border-slate-200 text-slate-700 shadow-sm font-mono text-lg" style={{ display: "inline-block" }}>{dayLabel}</span>
+        <span className="px-3 py-1 rounded bg-white/80 border border-slate-200 text-slate-700 shadow-sm font-mono text-lg" style={{ minWidth: "12ch", display: "inline-block" }}>{timeLabel}</span>
         <span className="px-2 py-1 rounded bg-white/80 border border-slate-200 text-slate-700 shadow-sm">{paused ? "Paused" : "Running"}</span>
       </div>
 
