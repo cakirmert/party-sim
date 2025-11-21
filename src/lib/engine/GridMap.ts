@@ -132,6 +132,25 @@ export class GridMap {
       }
     }
 
+
+    // 🔹 Custom walls from spec
+    if (spec.wallRects) {
+      for (const w of spec.wallRects) {
+          for (let yy = w.y; yy < w.y + w.h; yy++) {
+            for (let xx = w.x; xx < w.x + w.w; xx++) {
+              if (!gm.inBounds(xx, yy)) continue;
+                gm.set(xx, yy, {
+                walkable: false,
+                moveCost: 1,
+                tag: "WALL",
+                });
+              }
+            }
+          }
+        }
+
+
+
     // key areas
     stamp(spec.barRect, "BAR", true, 1);
     stamp(spec.gymRect, "GYM", true, 1);

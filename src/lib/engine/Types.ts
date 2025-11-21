@@ -12,7 +12,8 @@ export type TileTag =
   | "OUTSIDE"
   | "EXIT"
   | "ROAD"
-  | "BED";  
+  | "BED"
+  | "WALL";  
 
 export interface Tile {
   walkable: boolean;
@@ -41,6 +42,7 @@ export interface BaseSpec {
   gymRect: RectSpec;          // GYM
   outsideRect: RectSpec;      // OUTSIDE
   exitRect: RectSpec;         // ROAD/EXIT area (walkable)
+  wallRects?: RectSpec[];     // WALLS
 }
 
 export interface EngineConfig {
