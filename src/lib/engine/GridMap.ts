@@ -3,6 +3,7 @@ import type { BaseSpec, GridSize, MapJSON, Tile, TileTag, Vec2 } from "./Types";
 export class GridMap {
   readonly width: number;
   readonly height: number;
+  spec?: BaseSpec;
   private tiles: Tile[];
   private version = 0;
 
@@ -70,6 +71,7 @@ export class GridMap {
     json.tiles.forEach((jt, i) => {
       gm.setDirect(i, { walkable: jt.walkable, moveCost: jt.moveCost, tag: jt.tag });
     });
+    if (json.spec) gm.spec = json.spec;
     gm.bumpVersion();
     return gm;
   }
@@ -98,6 +100,7 @@ export class GridMap {
 
   static buildFromSpec(grid: GridSize, spec: BaseSpec): GridMap {
     const gm = new GridMap(grid, { walkable: true, moveCost: 1, tag: "BUILDABLE" });
+    gm.spec = spec;
 
     // helper to stamp rects
     const stamp = (r: { x: number; y: number; w: number; h: number }, tag: TileTag, walkable = true, moveCost = 1) => {
@@ -115,6 +118,22 @@ export class GridMap {
         for (let xx = b.x; xx < b.x + b.w; xx++) {
           if (!gm.inBounds(xx, yy)) continue;
           gm.set(xx, yy, { walkable: true, moveCost: 1, tag: "BUILDABLE" });
+        }
+      }
+    }
+
+    // Custom walls from spec
+    if (spec.wallRects) {
+      for (const w of spec.wallRects) {
+        for (let yy = w.y; yy < w.y + w.h; yy++) {
+          for (let xx = w.x; xx < w.x + w.w; xx++) {
+            if (!gm.inBounds(xx, yy)) continue;
+            gm.set(xx, yy, {
+              walkable: false,
+              moveCost: 1,
+              tag: "WALL",
+            });
+          }
         }
       }
     }

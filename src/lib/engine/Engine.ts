@@ -936,9 +936,6 @@ export class Engine {
     numAgents = Math.max(1, Math.min(100, numAgents));
     const spawns: Vec2[] = [];
 
-    const margin = 4;
-    const corridorWidth = 3;
-
     const roomInteriorW = 4;
     const roomInteriorH = 4;
     const wall = 1;
@@ -946,6 +943,88 @@ export class Engine {
     const roomTotalH = roomInteriorH + wall * 2;
     const stepX = roomInteriorW + wall;
     const stepY = roomInteriorH + wall;
+
+    this.corridorTiles = [];
+    this.corridorBoundingBox = undefined;
+
+    const buildableRects = this.map.spec?.buildableRects;
+
+    if (buildableRects && buildableRects.length) {
+      console.log("buildable rects:", buildableRects);
+
+      const placeRoom = (left: number, top: number, doorDir: "up" | "down") => {
+        const spawn: Vec2 = {
+          x: left + wall + Math.floor(roomInteriorW / 2),
+          y: top + wall + Math.floor(roomInteriorH / 2),
+        };
+
+        // Build room walls and interior
+        for (let yy = 0; yy < roomTotalH; yy++) {
+          for (let xx = 0; xx < roomTotalW; xx++) {
+            const tx = left + xx;
+            const ty = top + yy;
+            if (!this.map.inBounds(tx, ty)) continue;
+
+            const isWall =
+              xx < wall ||
+              xx >= wall + roomInteriorW ||
+              yy < wall ||
+              yy >= wall + roomInteriorH;
+
+            const tile: Tile = {
+              walkable: !isWall,
+              moveCost: 1,
+              tag: "ROOM",
+            };
+            this.map.set(tx, ty, tile);
+          }
+        }
+
+        // Add the door (so agents can enter)
+        const doorX = left + wall + Math.floor(roomInteriorW / 2);
+        const doorY = doorDir === "down" ? top + roomTotalH - 1 : top;
+        if (this.map.inBounds(doorX, doorY)) {
+          this.map.set(doorX, doorY, { walkable: true, moveCost: 1, tag: "DOOR" });
+        }
+
+        // Add the bed (tiny 2x1 area)
+        const bedW = 1;
+        const bedH = 2;
+        const placeAtTop = doorDir === "down";
+        const bedTop = placeAtTop ? top + wall : top + wall + roomInteriorH - bedH;
+        const bedLeft = left + wall;
+
+        for (let by = 0; by < bedH; by++) {
+          for (let bx = 0; bx < bedW; bx++) {
+            const tx = bedLeft + bx;
+            const ty = bedTop + by;
+            if (!this.map.inBounds(tx, ty)) continue;
+            this.map.set(tx, ty, { walkable: false, moveCost: 1, tag: "BED" });
+          }
+        }
+
+        // Add to spawn list (center of room)
+        spawns.push(spawn);
+      };
+
+      // Build dorms inside each JSON rect (not just one block!)
+      for (const rect of buildableRects) {
+        let y = rect.y;
+        while (y + roomTotalH <= rect.y + rect.h && spawns.length < numAgents) {
+          let x = rect.x;
+          while (x + roomTotalW <= rect.x + rect.w && spawns.length < numAgents) {
+            placeRoom(x, y, "down");
+            x += stepX;
+          }
+          y += stepY;
+        }
+      }
+
+      return spawns.slice(0, numAgents);
+    }
+
+    const margin = 4;
+    const corridorWidth = 3;
 
     const corridorStartGuess = Math.max(margin + roomTotalH, Math.floor(this.map.height * 0.32));
     const corridorY0 = Math.min(this.map.height - margin - corridorWidth, corridorStartGuess);

@@ -164,6 +164,8 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
   }, [engineRef, zoomAtCenter]);
 
   function getTileColor(t: Tile): string {
+    if (t.tag === "WALL") return "#000000";
+    if (t.tag === "BED") return "#ef4444";
     if (!t.walkable) return "#94a3b8";
     switch (t.tag) {
       case "BAR": return "#fde68a";
