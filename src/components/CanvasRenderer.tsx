@@ -218,8 +218,9 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
       GYM: "Gym",
       OUTSIDE: "Outside",
       EXIT: "Exit",
-      CORRIDOR: "Corridor",
-      ROOM: "Dorms",
+      // Not displaying the corridor and dorms labels to reduce clutter
+      CORRIDOR: "",
+      ROOM: "",
     };
 
     // tiles
@@ -351,23 +352,21 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
       }
     }
 
-    if (camera.zoom > 1.1) {
-      ctx.save();
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-      ctx.textAlign = "center";
-      for (const [tag, data] of labelAccumulator) {
-        const label = labelNames[tag];
-        if (!label) continue;
-        const cx = (data.x / data.count + 0.5) * ppt;
-        const cy = (data.y / data.count + 0.5) * ppt;
-        ctx.font = `${14 / camera.zoom}px sans-serif`;
-        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-        ctx.fillText(label, cx, cy + 1);
-        ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
-        ctx.fillText(label, cx, cy);
-      }
-      ctx.restore();
+    ctx.save();
+    ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
+    ctx.textAlign = "center";
+    for (const [tag, data] of labelAccumulator) {
+      const label = labelNames[tag];
+      if (!label) continue;
+      const cx = (data.x / data.count + 0.5) * ppt;
+      const cy = (data.y / data.count + 0.5) * ppt;
+      ctx.font = `${20 / camera.zoom}px sans-serif`;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.fillText(label, cx, cy + 1);
+      ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
+      ctx.fillText(label, cx, cy);
     }
+    ctx.restore();
 
     const minutes = engine.tod.minute;
     let checkPeakTime = false;
