@@ -51,7 +51,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
   const paintDragStart = useRef<Vec2 | null>(null);
   const paintDragLastKey = useRef<string>("");
   const lockedToastRef = useRef(false);
-  const renderCanvasRef = useRef<() => void>(() => {});
+  const renderCanvasRef = useRef<() => void>(() => { });
 
   useEffect(() => {
     if (!editable) setPaintTool("wall");
@@ -378,17 +378,19 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
       }
     });
 
-    if (engine.corridorBoundingBox && checkPeakTime) {
-      const agentsInCorridor = agents
-        .filter((a) =>
-          a.pos.x <= (engine.corridorBoundingBox?.x1 || 0)
-          && a.pos.x >= (engine.corridorBoundingBox?.x0 || 0)
-          && a.pos.y <= (engine.corridorBoundingBox?.y1 || 0)
-          && a.pos.y >= (engine.corridorBoundingBox?.y0 || 0)
-        )
-        .length
+    if (engine.corridorBoundingBoxes?.length && checkPeakTime) {
+      engine.corridorBoundingBoxes.forEach((box) => {
+        const agentsInCorridor = agents
+          .filter((a) =>
+            a.pos.x <= (box.x1 || 0)
+            && a.pos.x >= (box.x0 || 0)
+            && a.pos.y <= (box.y1 || 0)
+            && a.pos.y >= (box.y0 || 0)
+          )
+          .length
 
         engine.corridorDensityValues.push(agentsInCorridor);
+      });
     }
 
     const statsSample = engine.getPerfStats();

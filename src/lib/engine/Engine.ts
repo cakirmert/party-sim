@@ -1,5 +1,5 @@
 import { GridMap } from "./GridMap";
-import { Agent, AGENT_PROPS } from "./Agent";
+import { Agent, AGENT_PROPS, DAY_NAMES } from "./Agent";
 import type { EngineConfig, Vec2, BaseSpec, Tile, TileTag, AgentState, WanderTarget, PathMetric, BoundingBox } from "./Types";
 import { RNG } from "./RNG";
 import type { Command } from "./Commands";
@@ -63,14 +63,32 @@ export class Engine {
   private corridorTiles: Vec2[] = [];
   public pathsMetrics: Array<PathMetric> = []
   private maxPathsMetricsLength = 500;
-  public corridorBoundingBox?: BoundingBox;
+  public corridorBoundingBoxes?: BoundingBox[];
+  public gymBoundingBox?: BoundingBox;
+  public barBoundingBox?: BoundingBox;
   public corridorDensityValues: Array<number> = []
+  public maxBarOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
+  public maxGymOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
+
+  private setCorridorBoundingBoxes(baseSpec?: BaseSpec) {
+    this.corridorBoundingBoxes = baseSpec?.corridorRects?.map((rect) => {
+      return {
+        x0: rect.x,
+        y0: rect.y,
+        x1: rect.x + rect.w,
+        y1: rect.y + rect.h,
+        tiles: rect.w * rect.h,
+      };
+    });
+  }
 
   constructor(cfg: EngineConfig, baseSpec?: BaseSpec) {
     this.cfg = cfg;
     this.rng = new RNG(cfg.seed);
     this.clock = new Clock(cfg.baseTickRate);
     this.tod = new TimeOfDay(360); // 06:00
+
+    this.setCorridorBoundingBoxes(baseSpec);
 
     // Start with a simple BUILDABLE floor if no spec yet; caller can reset later.
     this.map = baseSpec
@@ -115,6 +133,7 @@ export class Engine {
   resetWorld(baseSpec: BaseSpec, count: number) {
     // Rebuild map from base spec
     this.map = GridMap.buildFromSpec(this.cfg.grid, baseSpec);
+    this.setCorridorBoundingBoxes(baseSpec);
     // Clear sim
     this.agents.clear();
     this.outList.length = 0;
@@ -150,6 +169,22 @@ export class Engine {
       a.lastMapVersion = mapVersion;
       this.agents.set(a.id, a);
       this.events.emit({ type: "AGENT_ADDED", id: a.id });
+    }
+
+    this.barBoundingBox = {
+      x0: baseSpec.barRect.x,
+      y0: baseSpec.barRect.y,
+      x1: baseSpec.barRect.x + baseSpec.barRect.w,
+      y1: baseSpec.barRect.y + baseSpec.barRect.h,
+      tiles: baseSpec.barRect.w * baseSpec.barRect.h,
+    }
+
+    this.gymBoundingBox = {
+      x0: baseSpec.gymRect.x,
+      y0: baseSpec.gymRect.y,
+      x1: baseSpec.gymRect.x + baseSpec.gymRect.w,
+      y1: baseSpec.gymRect.y + baseSpec.gymRect.h,
+      tiles: baseSpec.gymRect.w * baseSpec.gymRect.h,
     }
   }
 
@@ -266,7 +301,7 @@ export class Engine {
 
   private updateAgentTimers(agent: Agent): boolean {
     const prevState = agent.state;
-    const hold = prevState === "Breakfast" || prevState === "AtBar" || prevState === "AtGym";
+    const hold = prevState === "Breakfast" || prevState === "AtBar" || prevState === "AtGym" || prevState === "InRoom";
     if (!hold) return true;
 
     if (agent.stateTimer > 0) {
@@ -323,7 +358,8 @@ export class Engine {
   private pickWanderTarget(agent: Agent): WanderTarget | null {
     const agentProps = AGENT_PROPS[agent.agentType];
     const timeOfDay = this.getTimeOfDay();
-    const currentProps = agentProps[timeOfDay];
+    const dayOfWeek = DAY_NAMES[this.tod.dayOfWeek];
+    const currentProps = agentProps[dayOfWeek][timeOfDay];
     const gymCoeff = currentProps.gym * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
     const barCoeff = currentProps.bar * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
     const roomCoeff = currentProps.room * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
@@ -740,13 +776,30 @@ export class Engine {
       this.despawnToOffMap(agent, { x: agent.pos.x, y: agent.pos.y });
       return false;
     }
-    if (tile.tag === "BAR" || tile.tag === "GYM") {
+    if (tile.tag === "BAR") {
       this.handlePoiArrival(agent, tile.tag);
+      const minStay = Math.max(1, 60 - 50);
+      const maxStay = 60 + 50;
+      const dwell = this.rng.int(minStay, maxStay);
+      this.setAgentState(agent, "AtBar", dwell);
+      return true;
+    }
+    if (tile.tag === "GYM") {
+      this.handlePoiArrival(agent, tile.tag);
+      const minStay = Math.max(1, 60 - 50);
+      const maxStay = 60 + 50;
+      const dwell = this.rng.int(minStay, maxStay);
+      this.setAgentState(agent, "AtGym", dwell);
       return true;
     }
 
     this.resetAgentTarget(agent);
-    if (agent.state === "Wander" || agent.state === "GoingToExit" || agent.state === "Returning") {
+    if (tile.tag === "ROOM") {
+      const minStay = Math.max(1, 60 - 50);
+      const maxStay = 60 + 50;
+      const dwell = this.rng.int(minStay, maxStay);
+      this.setAgentState(agent, "InRoom", dwell);
+    } else if (agent.state === "Wander" || agent.state === "GoingToExit" || agent.state === "Returning") {
       this.setAgentState(agent, "Idle");
     }
     agent.lastMapVersion = this.map.getVersion();
@@ -754,6 +807,17 @@ export class Engine {
   }
 
   private onPoiLeave(state: AgentState) {
+    const maxGym = this.maxGymOccupancy[this.tod.dayOfWeek];
+    const maxBar = this.maxBarOccupancy[this.tod.dayOfWeek];
+
+    if (this.poiOccupancy.BAR > maxBar) {
+      this.maxBarOccupancy[this.tod.dayOfWeek] = this.poiOccupancy.BAR;
+    }
+
+    if (this.poiOccupancy.GYM > maxGym) {
+      this.maxGymOccupancy[this.tod.dayOfWeek] = this.poiOccupancy.GYM;
+    }
+
     if (state === "AtBar") {
       this.poiOccupancy.BAR = Math.max(0, this.poiOccupancy.BAR - 1);
     } else if (state === "AtGym") {
@@ -770,6 +834,10 @@ export class Engine {
     this.densityTimer += dtSec;
     this.perfTimer += dtSec;
     this.ticksThisSecond++;
+
+    if (this.tod.minute == 0) {
+      this.tod.dayOfWeek = (this.tod.dayOfWeek + 1) % 7;
+    }
 
     // Handle off-map returns
     if (this.outList.length) {
@@ -945,7 +1013,6 @@ export class Engine {
     const stepY = roomInteriorH + wall;
 
     this.corridorTiles = [];
-    this.corridorBoundingBox = undefined;
 
     const buildableRects = this.map.spec?.buildableRects;
 
@@ -1114,19 +1181,6 @@ export class Engine {
       const tile = this.map.get(x, corridorMid);
       this.map.set(x, corridorMid, { ...tile, walkable: true, moveCost: 1, tag: "CORRIDOR" });
     }
-
-    const x0 = margin;
-    const y0 = corridorY0;
-    const x1 = this.map.width - margin - 1;
-    const y1 = corridorY1;
-
-    this.corridorBoundingBox = {
-      x0,
-      y0,
-      x1,
-      y1,
-      tiles: (x0 - x1) * (y0 - y1),
-    };
 
     return spawns.slice(0, numAgents);
   }

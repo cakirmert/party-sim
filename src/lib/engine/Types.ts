@@ -63,6 +63,6 @@ export interface EngineConfig {
   pixelsPerTile: number; // for renderer
 }
 
-export type SimSpeed = 0.25 | 0.5 | 1 | 2 | 4 | 8;
+export type SimSpeed = 0.25 | 0.5 | 1 | 2 | 4 | 8 | 16 | 32 | 64;
 
-export type AgentState = "Idle"|"Wander"|"GoingToExit"|"OffMap"|"Returning"|"Breakfast"|"AtBar"|"AtGym";
+export type AgentState = "Idle"|"Wander"|"GoingToExit"|"OffMap"|"Returning"|"Breakfast"|"AtBar"|"AtGym"|"InRoom";

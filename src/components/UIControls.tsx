@@ -8,7 +8,7 @@ import { AGENT_TYPES } from "@/lib/engine/Agent";
 import { getAgentColor } from "./utils";
 import type { MetricsMap, SimSpeed } from "@/lib/engine/Types";
 
-const SPEED_OPTIONS: SimSpeed[] = [0.25, 0.5, 1, 2, 4, 8];
+const SPEED_OPTIONS: SimSpeed[] = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
 
 type Props = { engineRef: React.MutableRefObject<Engine | null> };
 
@@ -34,7 +34,7 @@ export default function UIControls({ engineRef }: Props) {
     eng.stepOnce();
   };
 
-  const calculateC2 = (): number => {
+  const calculateRoomsPath = (): number => {
     const eng = engineRef.current;
     const metrics: MetricsMap = {};
 
@@ -44,23 +44,18 @@ export default function UIControls({ engineRef }: Props) {
       metrics[pm.room!].count += 1;
     });
 
-    let c2: number = 0;
-    let totalCount: number = 0;
+    let totalLength = 0;;
+    let totalCount = 0;
 
-    Object.keys(metrics).forEach((room) => {
-      const totalLength = metrics[room].totalLength;
-      const weight = metrics[room].count;
-      c2 += (totalLength * weight);
-      totalCount += weight;
+    Object.values(metrics).forEach((rm) => {
+      totalLength += rm.totalLength;
+      totalCount += rm.count;
     });
 
-    if (totalCount === 0) return 0;
-    c2 /= totalCount;
-
-    return c2;
+    return totalLength / (totalCount || 1);
   };
 
-  const calculateC3 = (): number => {
+  const calculateCorridorCongestion = (): number => {
     const eng = engineRef.current;
     const densities = eng?.corridorDensityValues;
     let densitiesAverage = 0;
@@ -71,13 +66,28 @@ export default function UIControls({ engineRef }: Props) {
 
     densitiesAverage /= densities?.length || 1;
 
-    return densitiesAverage / (eng?.corridorBoundingBox?.tiles || 1);
+    const numberOfTiles = eng?.corridorBoundingBoxes?.reduce((acc, box) => acc + (box.tiles || 0), 0) || 1;
+
+    return densitiesAverage / (numberOfTiles);
   };
 
+  const calculateMaxOccupancy = () => {
+    const eng = engineRef.current; 
+    const barRatio = eng?.maxBarOccupancy.map((occ) => {
+      return occ / (eng.barBoundingBox?.tiles || 1);
+    });
+    const gymRatio = eng?.maxGymOccupancy.map((occ) => {
+      return occ / (eng.gymBoundingBox?.tiles || 1);
+    });
+
+    console.log({gymRatio, barRatio});
+  }
+
   const calculateMetrics = () => {
-    const c2 = calculateC2();
-    const c3 = calculateC3();
-    console.log({ c2, c3 });
+    const roomsPath = calculateRoomsPath();
+    const corridorCongestion = calculateCorridorCongestion();
+    calculateMaxOccupancy();
+    console.log({ roomsPath, corridorCongestion });
   };
 
   return (
