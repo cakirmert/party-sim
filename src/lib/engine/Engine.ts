@@ -64,7 +64,11 @@ export class Engine {
   public pathsMetrics: Array<PathMetric> = []
   private maxPathsMetricsLength = 500;
   public corridorBoundingBox?: BoundingBox;
+  public gymBoundingBox?: BoundingBox;
+  public barBoundingBox?: BoundingBox;
   public corridorDensityValues: Array<number> = []
+  public maxBarOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
+  public maxGymOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
 
   constructor(cfg: EngineConfig, baseSpec?: BaseSpec) {
     this.cfg = cfg;
@@ -150,6 +154,22 @@ export class Engine {
       a.lastMapVersion = mapVersion;
       this.agents.set(a.id, a);
       this.events.emit({ type: "AGENT_ADDED", id: a.id });
+    }
+
+    this.barBoundingBox = {
+      x0: baseSpec.barRect.x,
+      y0: baseSpec.barRect.y,
+      x1: baseSpec.barRect.x + baseSpec.barRect.w,
+      y1: baseSpec.barRect.y + baseSpec.barRect.h,
+      tiles: baseSpec.barRect.w * baseSpec.barRect.h,
+    }
+
+    this.gymBoundingBox = {
+      x0: baseSpec.gymRect.x,
+      y0: baseSpec.gymRect.y,
+      x1: baseSpec.gymRect.x + baseSpec.gymRect.w,
+      y1: baseSpec.gymRect.y + baseSpec.gymRect.h,
+      tiles: baseSpec.gymRect.w * baseSpec.gymRect.h,
     }
   }
 
@@ -266,7 +286,7 @@ export class Engine {
 
   private updateAgentTimers(agent: Agent): boolean {
     const prevState = agent.state;
-    const hold = prevState === "Breakfast" || prevState === "AtBar" || prevState === "AtGym";
+    const hold = prevState === "Breakfast" || prevState === "AtBar" || prevState === "AtGym" || prevState === "InRoom";
     if (!hold) return true;
 
     if (agent.stateTimer > 0) {
@@ -741,13 +761,30 @@ export class Engine {
       this.despawnToOffMap(agent, { x: agent.pos.x, y: agent.pos.y });
       return false;
     }
-    if (tile.tag === "BAR" || tile.tag === "GYM") {
+    if (tile.tag === "BAR") {
       this.handlePoiArrival(agent, tile.tag);
+      const minStay = Math.max(1, 60 - 50);
+      const maxStay = 60 + 50;
+      const dwell = this.rng.int(minStay, maxStay);
+      this.setAgentState(agent, "AtBar", dwell);
+      return true;
+    }
+    if (tile.tag === "GYM") {
+      this.handlePoiArrival(agent, tile.tag);
+      const minStay = Math.max(1, 60 - 50);
+      const maxStay = 60 + 50;
+      const dwell = this.rng.int(minStay, maxStay);
+      this.setAgentState(agent, "AtGym", dwell);
       return true;
     }
 
     this.resetAgentTarget(agent);
-    if (agent.state === "Wander" || agent.state === "GoingToExit" || agent.state === "Returning") {
+    if (tile.tag === "ROOM") {
+      const minStay = Math.max(1, 60 - 50);
+      const maxStay = 60 + 50;
+      const dwell = this.rng.int(minStay, maxStay);
+      this.setAgentState(agent, "InRoom", dwell);
+    } else if (agent.state === "Wander" || agent.state === "GoingToExit" || agent.state === "Returning") {
       this.setAgentState(agent, "Idle");
     }
     agent.lastMapVersion = this.map.getVersion();
@@ -755,6 +792,17 @@ export class Engine {
   }
 
   private onPoiLeave(state: AgentState) {
+    const maxGym = this.maxGymOccupancy[this.tod.dayOfWeek];
+    const maxBar = this.maxBarOccupancy[this.tod.dayOfWeek];
+
+    if (this.poiOccupancy.BAR > maxBar) {
+      this.maxBarOccupancy[this.tod.dayOfWeek] = this.poiOccupancy.BAR;
+    }
+
+    if (this.poiOccupancy.GYM > maxGym) {
+      this.maxGymOccupancy[this.tod.dayOfWeek] = this.poiOccupancy.GYM;
+    }
+
     if (state === "AtBar") {
       this.poiOccupancy.BAR = Math.max(0, this.poiOccupancy.BAR - 1);
     } else if (state === "AtGym") {
