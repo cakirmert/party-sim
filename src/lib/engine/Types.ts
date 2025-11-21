@@ -21,7 +21,9 @@ export type TileTag =
   | "GYM"
   | "OUTSIDE"
   | "EXIT"
-  | "ROAD";
+  | "ROAD"
+  | "BED"
+  | "WALL";
 
 export interface Tile {
   walkable: boolean;
@@ -44,11 +46,13 @@ export interface MapJSON {
 // Engine will expand this into tiles on boot/reset.
 export interface RectSpec { x: number; y: number; w: number; h: number; }
 export interface BaseSpec {
+  corridorRects?: { x: number; y: number; w: number; h: number }[];
   buildableRects: RectSpec[]; // tagged BUILDABLE
   barRect: RectSpec;          // BAR
   gymRect: RectSpec;          // GYM
   outsideRect: RectSpec;      // OUTSIDE
   exitRect: RectSpec;         // ROAD/EXIT area (walkable)
+  wallRects?: RectSpec[];     // WALLS
 }
 
 export interface EngineConfig {
