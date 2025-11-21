@@ -63,18 +63,32 @@ export class Engine {
   private corridorTiles: Vec2[] = [];
   public pathsMetrics: Array<PathMetric> = []
   private maxPathsMetricsLength = 500;
-  public corridorBoundingBox?: BoundingBox;
+  public corridorBoundingBoxes?: BoundingBox[];
   public gymBoundingBox?: BoundingBox;
   public barBoundingBox?: BoundingBox;
   public corridorDensityValues: Array<number> = []
   public maxBarOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
   public maxGymOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
 
+  private setCorridorBoundingBoxes(baseSpec?: BaseSpec) {
+    this.corridorBoundingBoxes = baseSpec?.corridorRects?.map((rect) => {
+      return {
+        x0: rect.x,
+        y0: rect.y,
+        x1: rect.x + rect.w,
+        y1: rect.y + rect.h,
+        tiles: rect.w * rect.h,
+      };
+    });
+  }
+
   constructor(cfg: EngineConfig, baseSpec?: BaseSpec) {
     this.cfg = cfg;
     this.rng = new RNG(cfg.seed);
     this.clock = new Clock(cfg.baseTickRate);
     this.tod = new TimeOfDay(360); // 06:00
+
+    this.setCorridorBoundingBoxes(baseSpec);
 
     // Start with a simple BUILDABLE floor if no spec yet; caller can reset later.
     this.map = baseSpec
@@ -119,6 +133,7 @@ export class Engine {
   resetWorld(baseSpec: BaseSpec, count: number) {
     // Rebuild map from base spec
     this.map = GridMap.buildFromSpec(this.cfg.grid, baseSpec);
+    this.setCorridorBoundingBoxes(baseSpec);
     // Clear sim
     this.agents.clear();
     this.outList.length = 0;
@@ -998,7 +1013,6 @@ export class Engine {
     const stepY = roomInteriorH + wall;
 
     this.corridorTiles = [];
-    this.corridorBoundingBox = undefined;
 
     const buildableRects = this.map.spec?.buildableRects;
 
@@ -1167,19 +1181,6 @@ export class Engine {
       const tile = this.map.get(x, corridorMid);
       this.map.set(x, corridorMid, { ...tile, walkable: true, moveCost: 1, tag: "CORRIDOR" });
     }
-
-    const x0 = margin;
-    const y0 = corridorY0;
-    const x1 = this.map.width - margin - 1;
-    const y1 = corridorY1;
-
-    this.corridorBoundingBox = {
-      x0,
-      y0,
-      x1,
-      y1,
-      tiles: (x0 - x1) * (y0 - y1),
-    };
 
     return spawns.slice(0, numAgents);
   }

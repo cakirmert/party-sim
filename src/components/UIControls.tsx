@@ -66,7 +66,9 @@ export default function UIControls({ engineRef }: Props) {
 
     densitiesAverage /= densities?.length || 1;
 
-    return densitiesAverage / (eng?.corridorBoundingBox?.tiles || 1);
+    const numberOfTiles = eng?.corridorBoundingBoxes?.reduce((acc, box) => acc + (box.tiles || 0), 0) || 1;
+
+    return densitiesAverage / (numberOfTiles);
   };
 
   const calculateMaxOccupancy = () => {
