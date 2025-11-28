@@ -9,7 +9,7 @@ import { TimeOfDay } from "./TimeOfDay";
 
 const BREAKFAST_MINUTES = 30;
 const POI_DWELL_MIN = 10;
-const POI_DWELL_MAX = 20;
+const POI_DWELL_MAX = 100;
 const RECENT_TILE_HISTORY = 6;
 const STUCK_SEARCH_TICKS = 2;
 const LOCAL_SEARCH_RADIUS = 0; // 0 => unlimited
@@ -287,16 +287,6 @@ export class Engine {
     }
     agent.state = state;
     agent.stateTimer = Math.max(0, timerMinutes);
-  }
-
-  private updateAgentNeeds(agent: Agent) {
-    const minutes = this.minutesPerTick;
-    const hungerDelta = 0.0008 * minutes;
-    const energyDelta = 0.0005 * minutes;
-    const socialDelta = 0.0003 * minutes;
-    agent.needs.hunger = Math.min(1, agent.needs.hunger + hungerDelta);
-    agent.needs.energy = Math.max(0, agent.needs.energy - energyDelta);
-    agent.needs.social = Math.max(0, Math.min(1, agent.needs.social - socialDelta));
   }
 
   private updateAgentTimers(agent: Agent): boolean {
@@ -865,7 +855,6 @@ export class Engine {
     }
 
     for (const a of this.agents.values()) {
-      this.updateAgentNeeds(a);
       if (!this.updateAgentTimers(a)) {
         continue;
       }

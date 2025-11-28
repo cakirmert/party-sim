@@ -65,150 +65,150 @@ export type AgentProps = {
 export const AGENT_PROPS: AgentProps = {
   "Bookworm": {
     "Mon": {
-      "morning": { "room": 0.80, "gym": 0.10, "bar": 0.10 },
-      "afternoon": { "room": 0.75, "gym": 0.15, "bar": 0.10 },
-      "night": { "room": 0.85, "gym": 0.00, "bar": 0.12 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.9, "gym": 0.1, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Tue": {
-      "morning": { "room": 0.82, "gym": 0.10, "bar": 0.08 },
-      "afternoon": { "room": 0.72, "gym": 0.18, "bar": 0.10 },
-      "night": { "room": 0.85, "gym": 0.00, "bar": 0.13 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.9, "gym": 0.1, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Wed": {
-      "morning": { "room": 0.80, "gym": 0.12, "bar": 0.08 },
-      "afternoon": { "room": 0.70, "gym": 0.20, "bar": 0.10 },
-      "night": { "room": 0.83, "gym": 0.00, "bar": 0.15 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.9, "gym": 0.1, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Thu": {
-      "morning": { "room": 0.78, "gym": 0.12, "bar": 0.10 },
-      "afternoon": { "room": 0.68, "gym": 0.22, "bar": 0.10 },
-      "night": { "room": 0.80, "gym": 0.00, "bar": 0.18 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.9, "gym": 0.1, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Fri": {
-      "morning": { "room": 0.78, "gym": 0.12, "bar": 0.10 },
-      "afternoon": { "room": 0.70, "gym": 0.20, "bar": 0.10 },
-      "night": { "room": 0.70, "gym": 0.00, "bar": 0.28 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.8, "gym": 0.1, "bar": 0.1 },
+      "night": { "room": 0.9, "gym": 0, "bar": 0.1 }
     },
     "Sat": {
-      "morning": { "room": 0.80, "gym": 0.10, "bar": 0.10 },
-      "afternoon": { "room": 0.74, "gym": 0.14, "bar": 0.12 },
-      "night": { "room": 0.70, "gym": 0.00, "bar": 0.30 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.8, "gym": 0.1, "bar": 0.1 },
+      "night": { "room": 0.9, "gym": 0, "bar": 0.1 }
     },
     "Sun": {
-      "morning": { "room": 0.88, "gym": 0.07, "bar": 0.05 },
-      "afternoon": { "room": 0.82, "gym": 0.10, "bar": 0.08 },
-      "night": { "room": 0.87, "gym": 0.00, "bar": 0.10 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.9, "gym": 0.1, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     }
   },
   "PartyAnimal": {
     "Mon": {
-      "morning": { "room": 0.80, "gym": 0.00, "bar": 0.20 },
-      "afternoon": { "room": 0.35, "gym": 0.20, "bar": 0.45 },
-      "night": { "room": 0.20, "gym": 0.00, "bar": 0.75 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.7, "gym": 0.1, "bar": 0.2 },
+      "night": { "room": 0.5, "gym": 0.1, "bar": 0.4 }
     },
     "Tue": {
-      "morning": { "room": 0.78, "gym": 0.00, "bar": 0.22 },
-      "afternoon": { "room": 0.30, "gym": 0.20, "bar": 0.50 },
-      "night": { "room": 0.18, "gym": 0.00, "bar": 0.78 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.7, "gym": 0.1, "bar": 0.2 },
+      "night": { "room": 0.5, "gym": 0.1, "bar": 0.4 }
     },
     "Wed": {
-      "morning": { "room": 0.75, "gym": 0.00, "bar": 0.25 },
-      "afternoon": { "room": 0.28, "gym": 0.20, "bar": 0.52 },
-      "night": { "room": 0.15, "gym": 0.00, "bar": 0.80 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.7, "gym": 0.1, "bar": 0.2 },
+      "night": { "room": 0.5, "gym": 0.1, "bar": 0.4 }
     },
     "Thu": {
-      "morning": { "room": 0.70, "gym": 0.00, "bar": 0.30 },
-      "afternoon": { "room": 0.25, "gym": 0.20, "bar": 0.55 },
-      "night": { "room": 0.12, "gym": 0.00, "bar": 0.85 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.7, "gym": 0.1, "bar": 0.2 },
+      "night": { "room": 0.5, "gym": 0.1, "bar": 0.4 }
     },
     "Fri": {
-      "morning": { "room": 0.65, "gym": 0.00, "bar": 0.35 },
-      "afternoon": { "room": 0.20, "gym": 0.18, "bar": 0.62 },
-      "night": { "room": 0.10, "gym": 0.00, "bar": 0.88 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.7, "gym": 0.1, "bar": 0.2 },
+      "night": { "room": 0.2, "gym": 0.1, "bar": 0.7 }
     },
     "Sat": {
-      "morning": { "room": 0.60, "gym": 0.00, "bar": 0.40 },
-      "afternoon": { "room": 0.20, "gym": 0.15, "bar": 0.65 },
-      "night": { "room": 0.08, "gym": 0.00, "bar": 0.90 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.7, "gym": 0.1, "bar": 0.2 },
+      "night": { "room": 0.2, "gym": 0.1, "bar": 0.7 }
     },
     "Sun": {
-      "morning": { "room": 0.75, "gym": 0.00, "bar": 0.25 },
-      "afternoon": { "room": 0.35, "gym": 0.20, "bar": 0.45 },
-      "night": { "room": 0.30, "gym": 0.00, "bar": 0.70 }
+      "morning": { "room": 1, "gym": 0, "bar": 0 },
+      "afternoon": { "room": 0.7, "gym": 0.1, "bar": 0.2 },
+      "night": { "room": 0.5, "gym": 0.1, "bar": 0.4 }
     }
   },
   "GymRat": {
     "Mon": {
-      "morning": { "room": 0.25, "gym": 0.65, "bar": 0.10 },
-      "afternoon": { "room": 0.25, "gym": 0.60, "bar": 0.15 },
-      "night": { "room": 0.60, "gym": 0.25, "bar": 0.15 }
+      "morning": { "room": 0.7, "gym": 0.3, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.5, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Tue": {
-      "morning": { "room": 0.25, "gym": 0.65, "bar": 0.10 },
-      "afternoon": { "room": 0.23, "gym": 0.62, "bar": 0.15 },
-      "night": { "room": 0.60, "gym": 0.25, "bar": 0.15 }
+      "morning": { "room": 0.7, "gym": 0.3, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.5, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Wed": {
-      "morning": { "room": 0.22, "gym": 0.68, "bar": 0.10 },
-      "afternoon": { "room": 0.23, "gym": 0.62, "bar": 0.15 },
-      "night": { "room": 0.60, "gym": 0.25, "bar": 0.15 }
+      "morning": { "room": 0.7, "gym": 0.3, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.5, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Thu": {
-      "morning": { "room": 0.22, "gym": 0.68, "bar": 0.10 },
-      "afternoon": { "room": 0.23, "gym": 0.62, "bar": 0.15 },
-      "night": { "room": 0.60, "gym": 0.25, "bar": 0.15 }
+      "morning": { "room": 0.7, "gym": 0.3, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.5, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Fri": {
-      "morning": { "room": 0.28, "gym": 0.62, "bar": 0.10 },
-      "afternoon": { "room": 0.25, "gym": 0.60, "bar": 0.15 },
-      "night": { "room": 0.65, "gym": 0.20, "bar": 0.15 }
+      "morning": { "room": 0.7, "gym": 0.3, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.5, "bar": 0 },
+      "night": { "room": 0.9, "gym": 0.005, "bar": 0.05 }
     },
     "Sat": {
-      "morning": { "room": 0.40, "gym": 0.45, "bar": 0.15 },
-      "afternoon": { "room": 0.35, "gym": 0.50, "bar": 0.15 },
-      "night": { "room": 0.62, "gym": 0.23, "bar": 0.15 }
+      "morning": { "room": 0.7, "gym": 0.3, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.5, "bar": 0 },
+      "night": { "room": 0.9, "gym": 0.05, "bar": 0.05 }
     },
     "Sun": {
-      "morning": { "room": 0.45, "gym": 0.40, "bar": 0.15 },
-      "afternoon": { "room": 0.40, "gym": 0.45, "bar": 0.15 },
-      "night": { "room": 0.62, "gym": 0.23, "bar": 0.15 }
+      "morning": { "room": 0.7, "gym": 0.3, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.5, "bar": 0 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     }
   },
   "Balanced": {
     "Mon": {
-      "morning": { "room": 0.55, "gym": 0.35, "bar": 0.10 },
-      "afternoon": { "room": 0.35, "gym": 0.35, "bar": 0.30 },
-      "night": { "room": 0.50, "gym": 0.00, "bar": 0.30 }
+      "morning": { "room": 0.8, "gym": 0.2, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.25, "bar": 0.25 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Tue": {
-      "morning": { "room": 0.53, "gym": 0.35, "bar": 0.12 },
-      "afternoon": { "room": 0.34, "gym": 0.35, "bar": 0.31 },
-      "night": { "room": 0.49, "gym": 0.00, "bar": 0.31 }
+      "morning": { "room": 0.8, "gym": 0.2, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.25, "bar": 0.25 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Wed": {
-      "morning": { "room": 0.52, "gym": 0.36, "bar": 0.12 },
-      "afternoon": { "room": 0.34, "gym": 0.35, "bar": 0.31 },
-      "night": { "room": 0.48, "gym": 0.00, "bar": 0.32 }
+      "morning": { "room": 0.8, "gym": 0.2, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.25, "bar": 0.25 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Thu": {
-      "morning": { "room": 0.50, "gym": 0.38, "bar": 0.12 },
-      "afternoon": { "room": 0.35, "gym": 0.35, "bar": 0.30 },
-      "night": { "room": 0.47, "gym": 0.00, "bar": 0.33 }
+      "morning": { "room": 0.8, "gym": 0.2, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.25, "bar": 0.25 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     },
     "Fri": {
-      "morning": { "room": 0.48, "gym": 0.38, "bar": 0.14 },
-      "afternoon": { "room": 0.32, "gym": 0.35, "bar": 0.33 },
-      "night": { "room": 0.42, "gym": 0.00, "bar": 0.38 }
+      "morning": { "room": 0.8, "gym": 0.2, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.25, "bar": 0.25 },
+      "night": { "room": 0.5, "gym": 0.25, "bar": 0.25 }
     },
     "Sat": {
-      "morning": { "room": 0.55, "gym": 0.30, "bar": 0.15 },
-      "afternoon": { "room": 0.35, "gym": 0.25, "bar": 0.40 },
-      "night": { "room": 0.45, "gym": 0.00, "bar": 0.40 }
+      "morning": { "room": 0.8, "gym": 0.2, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.25, "bar": 0.25 },
+      "night": { "room": 0.5, "gym": 0.25, "bar": 0.25 }
     },
     "Sun": {
-      "morning": { "room": 0.60, "gym": 0.28, "bar": 0.12 },
-      "afternoon": { "room": 0.40, "gym": 0.33, "bar": 0.27 },
-      "night": { "room": 0.55, "gym": 0.00, "bar": 0.30 }
+      "morning": { "room": 0.8, "gym": 0.2, "bar": 0 },
+      "afternoon": { "room": 0.5, "gym": 0.25, "bar": 0.25 },
+      "night": { "room": 1, "gym": 0, "bar": 0 }
     }
   },
 };
