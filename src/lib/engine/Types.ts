@@ -43,6 +43,7 @@ export interface BaseSpec {
   outsideRect: RectSpec;      // OUTSIDE
   exitRect: RectSpec;         // ROAD/EXIT area (walkable)
   wallRects?: RectSpec[];     // WALLS
+  doorTiles?: { x: number; y: number }[]; 
 }
 
 export interface EngineConfig {
