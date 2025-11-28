@@ -10,10 +10,6 @@ export const getAgentColor = (agentType: AgentType): string => {
       return "#3b82f6";
     case "Balanced":
       return "#8b5cf6";
-    case "Procrastinator":
-      return "#ef4444";
-    case "Overachiever":
-      return "#14b8a6";
     default:
       return "#6b7280";
   }

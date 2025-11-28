@@ -9,7 +9,7 @@ import { TimeOfDay } from "./TimeOfDay";
 
 const BREAKFAST_MINUTES = 30;
 const POI_DWELL_MIN = 10;
-const POI_DWELL_MAX = 20;
+const POI_DWELL_MAX = 100;
 const RECENT_TILE_HISTORY = 6;
 const STUCK_SEARCH_TICKS = 2;
 const LOCAL_SEARCH_RADIUS = 0; // 0 => unlimited
@@ -44,6 +44,7 @@ export class Engine {
   private agents: Map<string, Agent> = new Map();
   private outList: OutRecord[] = [];
   private tickCount = 0;
+  private weeksElapsed = 0;
 
   /** Minutes advanced per fixed logic tick at 1× speed. Adjust for your pacing. */
   private minutesPerTick = 0.5;
@@ -69,6 +70,13 @@ export class Engine {
   public corridorDensityValues: Array<number> = []
   public maxBarOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
   public maxGymOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
+
+  resetMetrics() {
+    this.pathsMetrics = [];
+    this.maxBarOccupancy = [0, 0, 0, 0, 0, 0, 0];
+    this.maxGymOccupancy = [0, 0, 0, 0, 0, 0, 0];
+    this.corridorDensityValues = [];
+  }
 
   private setCorridorBoundingBoxes(baseSpec?: BaseSpec) {
     this.corridorBoundingBoxes = baseSpec?.corridorRects?.map((rect) => {
@@ -138,7 +146,9 @@ export class Engine {
     this.agents.clear();
     this.outList.length = 0;
     this.tickCount = 0;
+    this.weeksElapsed = 0;
     this.tod.set(360); // 06:00
+    this.tod.dayOfWeek = 0;
     this.poiOccupancy.BAR = 0;
     this.poiOccupancy.GYM = 0;
     this.poiCenters.clear();
@@ -155,6 +165,7 @@ export class Engine {
     // (we could allow user to change seed—left as cfg.seed)
     // Generate dorm & room spawns
     this.roomSpawns = this.generateDorm(count);
+    this.resetMetrics();
 
     const mapVersion = this.map.getVersion();
     // Spawn agents (cap to roomSpawns length)
@@ -287,16 +298,6 @@ export class Engine {
     }
     agent.state = state;
     agent.stateTimer = Math.max(0, timerMinutes);
-  }
-
-  private updateAgentNeeds(agent: Agent) {
-    const minutes = this.minutesPerTick;
-    const hungerDelta = 0.0008 * minutes;
-    const energyDelta = 0.0005 * minutes;
-    const socialDelta = 0.0003 * minutes;
-    agent.needs.hunger = Math.min(1, agent.needs.hunger + hungerDelta);
-    agent.needs.energy = Math.max(0, agent.needs.energy - energyDelta);
-    agent.needs.social = Math.max(0, Math.min(1, agent.needs.social - socialDelta));
   }
 
   private updateAgentTimers(agent: Agent): boolean {
@@ -829,6 +830,7 @@ export class Engine {
 
   /** One discrete logic step. */
   private fixedStep(dtSec: number) {
+    const prevDayOfWeek = this.tod.dayOfWeek;
     // Advance in-game time
     this.tod.advance(this.minutesPerTick);
     this.densityTimer += dtSec;
@@ -837,6 +839,10 @@ export class Engine {
 
     if (this.tod.minute == 0) {
       this.tod.dayOfWeek = (this.tod.dayOfWeek + 1) % 7;
+      if (prevDayOfWeek === 6) {
+        this.weeksElapsed++;
+        this.events.emit({ type: "WEEK_COMPLETED", weeksElapsed: this.weeksElapsed });
+      }
     }
 
     // Handle off-map returns
@@ -865,7 +871,6 @@ export class Engine {
     }
 
     for (const a of this.agents.values()) {
-      this.updateAgentNeeds(a);
       if (!this.updateAgentTimers(a)) {
         continue;
       }

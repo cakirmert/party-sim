@@ -2,7 +2,8 @@ export type EngineEvent =
   | { type: "TICK"; tick: number }
   | { type: "AGENT_ADDED"; id: string }
   | { type: "AGENT_DESPAWNED"; id: string }
-  | { type: "AGENT_RESPAWNED"; id: string };
+  | { type: "AGENT_RESPAWNED"; id: string }
+  | { type: "WEEK_COMPLETED"; weeksElapsed: number };
 
 type Listener = (e: EngineEvent) => void;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { useSimStore } from "@/lib/state/useSimStore";
 import { Engine } from "@/lib/engine/Engine";
 import { GridMap } from "@/lib/engine/GridMap";
@@ -26,6 +26,7 @@ export default function UIControls({ engineRef }: Props) {
   const setToast = useSimStore(s => s.setToast);
 
   const fileRef = useRef<HTMLInputElement>(null);
+  const calculateMetricsRef = useRef<() => void>(() => {});
 
   const handleStep = () => {
     const eng = engineRef.current;
@@ -73,22 +74,56 @@ export default function UIControls({ engineRef }: Props) {
 
   const calculateMaxOccupancy = () => {
     const eng = engineRef.current; 
+    
     const barRatio = eng?.maxBarOccupancy.map((occ) => {
       return occ / (eng.barBoundingBox?.tiles || 1);
     });
+
     const gymRatio = eng?.maxGymOccupancy.map((occ) => {
       return occ / (eng.gymBoundingBox?.tiles || 1);
     });
 
-    console.log({gymRatio, barRatio});
+    return { barRatio, gymRatio };
   }
 
   const calculateMetrics = () => {
     const roomsPath = calculateRoomsPath();
     const corridorCongestion = calculateCorridorCongestion();
-    calculateMaxOccupancy();
-    console.log({ roomsPath, corridorCongestion });
+    const maxOccupancy = calculateMaxOccupancy();
+    console.log({ roomsPath, corridorCongestion, maxOccupancy });
   };
+  
+  calculateMetricsRef.current = calculateMetrics;
+
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    let frame: number | null = null;
+
+    const attach = () => {
+      const eng = engineRef.current;
+
+      if (!eng) {
+        frame = requestAnimationFrame(attach);
+        return;
+      }
+      
+      unsub = eng.events.on((evt) => {
+        if (evt.type === "WEEK_COMPLETED") {
+          console.log("Week completed!");
+          console.log("====================");
+          calculateMetricsRef.current();
+          console.log("====================");
+          engineRef.current?.resetMetrics();
+        }
+      });
+    };
+    attach();
+    
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      if (unsub) unsub();
+    };
+  }, [engineRef]);
 
   return (
     <div className="flex flex-wrap items-center gap-2 bg-white/90 p-3 rounded-lg border border-slate-200 shadow-sm">
