@@ -20,7 +20,6 @@ export class Agent extends Entity {
   offMap?: { untilMinute: number; reason: "Study" | "Work" | "Shop" };
   stateTimer = 0;
   lastMapVersion = -1;
-  needs: { hunger: number; energy: number; social: number } = { hunger: 0.6, energy: 1, social: 0.5 };
   pendingWander = true;
   moveProgress = 0;
   agentType: AgentType = "Balanced";

@@ -44,6 +44,7 @@ export class Engine {
   private agents: Map<string, Agent> = new Map();
   private outList: OutRecord[] = [];
   private tickCount = 0;
+  private weeksElapsed = 0;
 
   /** Minutes advanced per fixed logic tick at 1× speed. Adjust for your pacing. */
   private minutesPerTick = 0.5;
@@ -69,6 +70,13 @@ export class Engine {
   public corridorDensityValues: Array<number> = []
   public maxBarOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
   public maxGymOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
+
+  resetMetrics() {
+    this.pathsMetrics = [];
+    this.maxBarOccupancy = [0, 0, 0, 0, 0, 0, 0];
+    this.maxGymOccupancy = [0, 0, 0, 0, 0, 0, 0];
+    this.corridorDensityValues = [];
+  }
 
   private setCorridorBoundingBoxes(baseSpec?: BaseSpec) {
     this.corridorBoundingBoxes = baseSpec?.corridorRects?.map((rect) => {
@@ -138,7 +146,9 @@ export class Engine {
     this.agents.clear();
     this.outList.length = 0;
     this.tickCount = 0;
+    this.weeksElapsed = 0;
     this.tod.set(360); // 06:00
+    this.tod.dayOfWeek = 0;
     this.poiOccupancy.BAR = 0;
     this.poiOccupancy.GYM = 0;
     this.poiCenters.clear();
@@ -155,6 +165,7 @@ export class Engine {
     // (we could allow user to change seed—left as cfg.seed)
     // Generate dorm & room spawns
     this.roomSpawns = this.generateDorm(count);
+    this.resetMetrics();
 
     const mapVersion = this.map.getVersion();
     // Spawn agents (cap to roomSpawns length)
@@ -819,6 +830,7 @@ export class Engine {
 
   /** One discrete logic step. */
   private fixedStep(dtSec: number) {
+    const prevDayOfWeek = this.tod.dayOfWeek;
     // Advance in-game time
     this.tod.advance(this.minutesPerTick);
     this.densityTimer += dtSec;
@@ -827,6 +839,10 @@ export class Engine {
 
     if (this.tod.minute == 0) {
       this.tod.dayOfWeek = (this.tod.dayOfWeek + 1) % 7;
+      if (prevDayOfWeek === 6) {
+        this.weeksElapsed++;
+        this.events.emit({ type: "WEEK_COMPLETED", weeksElapsed: this.weeksElapsed });
+      }
     }
 
     // Handle off-map returns
