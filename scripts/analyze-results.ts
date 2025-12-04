@@ -12,12 +12,14 @@ type RunMetrics = {
   maxMeanTile: number;
   corridorMeanDensity: number;
   corridorPeakDensity: number;
+  corridorP95: number;
   barOccupancyRatio: number;
   gymOccupancyRatio: number;
   stuckRate: number;
   exitReachable: boolean;
   agentTicks: number;
   stuckTicks: number;
+  coverageRatio: number;
 };
 
 type RunOutput = {
@@ -39,10 +41,13 @@ type Aggregated = {
     avgPathLength: number;
     corridorMeanDensity: number;
     corridorPeakDensity: number;
+    corridorP95: number;
     stuckRate: number;
-    barOcc: number;
-    gymOcc: number;
+    barOccupancyRatio: number;
+    gymOccupancyRatio: number;
+    meanOccupancy: number;
     exitSuccess: number;
+    coverageRatio: number;
   };
   score: number;
   rank: number;
@@ -109,10 +114,13 @@ function aggregateRuns(runs: RunOutput[]): Aggregated[] {
       avgPathLength: mean(list.map(r => r.metrics.avgPathLength)),
       corridorMeanDensity: mean(list.map(r => r.metrics.corridorMeanDensity)),
       corridorPeakDensity: mean(list.map(r => r.metrics.corridorPeakDensity)),
+      corridorP95: mean(list.map(r => r.metrics.corridorP95)),
       stuckRate: mean(list.map(r => r.metrics.stuckRate)),
-      barOcc: mean(list.map(r => r.metrics.barOccupancyRatio)),
-      gymOcc: mean(list.map(r => r.metrics.gymOccupancyRatio)),
+      barOccupancyRatio: mean(list.map(r => r.metrics.barOccupancyRatio)),
+      gymOccupancyRatio: mean(list.map(r => r.metrics.gymOccupancyRatio)),
+      meanOccupancy: mean(list.map(r => r.metrics.meanOccupancy)),
       exitSuccess: mean(list.map(r => (r.metrics.exitReachable ? 1 : 0))),
+      coverageRatio: mean(list.map(r => r.metrics.coverageRatio)),
     };
 
     const heatmaps = list
@@ -135,19 +143,21 @@ function aggregateRuns(runs: RunOutput[]): Aggregated[] {
 }
 
 function scoreMaps(items: Aggregated[], weights: WeightConfig): Aggregated[] {
-  const waitMetric = (m: Aggregated["metrics"]) => m.stuckRate + Math.max(0, m.barOcc - 1) + Math.max(0, m.gymOcc - 1);
+  const waitMetric = (m: Aggregated["metrics"]) =>
+    m.stuckRate + Math.max(0, m.barOccupancyRatio - 1) + Math.max(0, m.gymOccupancyRatio - 1);
 
   const flowVals = items.map(i => i.metrics.avgPathLength);
   const waitVals = items.map(i => waitMetric(i.metrics));
   const clusterVals = items.map(i => i.metrics.corridorPeakDensity);
   const exitVals = items.map(i => i.metrics.exitSuccess);
+  const coverageVals = items.map(i => i.metrics.coverageRatio);
 
   const totalWeight = Math.max(1e-6, weights.flow + weights.wait + weights.cluster + weights.exit);
 
   for (const item of items) {
     const flowScore = normalizeLower(flowVals, item.metrics.avgPathLength);
     const waitScore = normalizeLower(waitVals, waitMetric(item.metrics));
-    const clusterScore = normalizeLower(clusterVals, item.metrics.corridorPeakDensity);
+    const clusterScore = (normalizeLower(clusterVals, item.metrics.corridorPeakDensity) + normalizeHigher(coverageVals, item.metrics.coverageRatio)) / 2;
     const exitScore = normalizeHigher(exitVals, item.metrics.exitSuccess);
 
     const score = (flowScore * weights.flow + waitScore * weights.wait + clusterScore * weights.cluster + exitScore * weights.exit) / totalWeight;
@@ -167,9 +177,12 @@ async function writeCsv(path: string, rows: Aggregated[]) {
     "avgPathLength",
     "corridorMeanDensity",
     "corridorPeakDensity",
+    "corridorP95",
     "stuckRate",
-    "barOcc",
-    "gymOcc",
+    "barOccupancyRatio",
+    "gymOccupancyRatio",
+    "meanOccupancy",
+    "coverageRatio",
     "exitSuccess",
     "runs",
   ];
@@ -182,9 +195,12 @@ async function writeCsv(path: string, rows: Aggregated[]) {
       row.metrics.avgPathLength.toFixed(3),
       row.metrics.corridorMeanDensity.toFixed(3),
       row.metrics.corridorPeakDensity.toFixed(3),
+      row.metrics.corridorP95.toFixed(3),
       row.metrics.stuckRate.toFixed(4),
-      row.metrics.barOcc.toFixed(3),
-      row.metrics.gymOcc.toFixed(3),
+      row.metrics.barOccupancyRatio.toFixed(3),
+      row.metrics.gymOccupancyRatio.toFixed(3),
+      row.metrics.meanOccupancy.toFixed(3),
+      row.metrics.coverageRatio.toFixed(3),
       row.metrics.exitSuccess.toFixed(3),
       row.runs.length,
     ].join(","));

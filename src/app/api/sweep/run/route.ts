@@ -19,6 +19,10 @@ type SweepRequest = {
   outside?: string;
   resultsDir?: string;
   heatmap?: boolean;
+  wFlow?: number;
+  wWait?: number;
+  wCluster?: number;
+  wExit?: number;
 };
 
 export async function POST(req: Request) {
@@ -48,6 +52,10 @@ export async function POST(req: Request) {
   if (body.exitWidth) args.push(`--exitWidth ${body.exitWidth}`);
   if (body.outside) args.push(`--outside ${body.outside}`);
   if (body.resultsDir) args.push(`--results ${body.resultsDir}`);
+  if (typeof body.wFlow === "number") args.push(`--w-flow ${body.wFlow}`);
+  if (typeof body.wWait === "number") args.push(`--w-wait ${body.wWait}`);
+  if (typeof body.wCluster === "number") args.push(`--w-cluster ${body.wCluster}`);
+  if (typeof body.wExit === "number") args.push(`--w-exit ${body.wExit}`);
   args.push(`--heatmap ${body.heatmap === false ? "false" : "true"}`);
 
   const cmd = `npm ${args.join(" ")}`;

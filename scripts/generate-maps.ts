@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { basename, resolve, relative } from "node:path";
+import { GridMap } from "../src/lib/engine/GridMap";
+import { aStar8 } from "../src/lib/engine/Pathfinder";
+import type { Vec2 } from "../src/lib/engine/Types";
 import type { BaseSpec, RectSpec } from "../src/lib/engine/Types";
 import {
   BaseSpecFile,
@@ -65,9 +68,10 @@ type GenerateOptions = {
 
 const DEFAULT_TEMPLATE = "public/maps/base.json";
 const MIN_ROOM_SIZE = 6; // matches dorm generator expectations
+const MIN_CORRIDOR_WIDTH = 3;
 
 const DEFAULT_RANGE: RangeConfig = {
-  corridorWidth: [8, 10, 12],
+  corridorWidth: [6, 8, 10, 12],
   crossHeight: [3, 4, 5],
   bandHeight: [8, 10, 12],
   bandCount: [3],
@@ -136,7 +140,7 @@ function buildSpec(grid: { width: number; height: number }, params: Required<Var
     throw new Error(`Grid too short for ${bandCount} bands (need >= ${minAvailableHeight}, have ${usableHeight})`);
   }
 
-  const corridorWidth = clamp(params.corridorWidth || 8, 4, grid.width - margin * 2 - 8);
+  const corridorWidth = clamp(params.corridorWidth || 8, MIN_CORRIDOR_WIDTH, grid.width - margin * 2 - 8);
   const centerX = Math.floor(grid.width / 2);
   const corridorX0 = clamp(centerX - Math.floor(corridorWidth / 2), margin + 1, grid.width - margin - corridorWidth - 1);
   const corridorRects: RectSpec[] = [
@@ -205,10 +209,54 @@ function buildSpec(grid: { width: number; height: number }, params: Required<Var
   const exitX0 = clamp(centerX - Math.floor(exitWidth / 2), margin, grid.width - margin - exitWidth);
   const exitRect: RectSpec = {
     x: exitX0,
-    y: outsideRect.y - 3,
+    y: Math.max(1, outsideRect.y - 3),
     w: exitWidth,
-    h: 3,
+    h: Math.max(2, Math.min(3, usableHeight)),
   };
+  // connector from exit into the building to guarantee an entrance path
+  corridorRects.push({
+    x: exitX0,
+    y: Math.max(1, exitRect.y - Math.max(2, crossHeight)),
+    w: exitWidth,
+    h: Math.max(2, crossHeight),
+  });
+
+  const doorTiles: { x: number; y: number }[] = [];
+  const ensureDoor = (rect: RectSpec) => {
+    const cx = rect.x + Math.floor(rect.w / 2);
+    const cy = rect.y + Math.floor(rect.h / 2);
+    doorTiles.push({ x: cx, y: cy });
+  };
+
+  // Entrance door at exit center
+  ensureDoor(exitRect);
+  // Bar/gym doors facing the vertical corridor
+  const corridorCenterX = corridorX0 + Math.floor(corridorWidth / 2);
+  const makeSideDoor = (rect: RectSpec) => {
+    const cy = rect.y + Math.floor(rect.h / 2);
+    const leftSide = rect.x - 1;
+    const rightSide = rect.x + rect.w;
+    const useLeft = corridorCenterX <= rect.x;
+    const x = useLeft ? leftSide : rightSide;
+    const y = clamp(cy, rect.y, rect.y + rect.h - 1);
+    doorTiles.push({ x, y });
+  };
+  makeSideDoor(barRect);
+  makeSideDoor(gymRect);
+
+  const addCorridorBridge = (from: { x: number; y: number }) => {
+    const cx = corridorCenterX;
+    const x0 = Math.min(from.x, cx);
+    const w = Math.abs(from.x - cx) + 1;
+    corridorRects.push({
+      x: x0,
+      y: clamp(from.y - 1, usableTop, usableBottom),
+      w,
+      h: 3,
+    });
+  };
+
+  doorTiles.forEach(d => addCorridorBridge(d));
 
   const overlapsPoi = (r: RectSpec) => rectsOverlap(r, barRect) || rectsOverlap(r, gymRect);
   const filteredBuildables = buildableRects.filter(r => !overlapsPoi(r));
@@ -225,8 +273,30 @@ function buildSpec(grid: { width: number; height: number }, params: Required<Var
       { x: margin - 1, y: usableTop - 1, w: 1, h: usableHeight + 2 },
       { x: grid.width - margin, y: usableTop - 1, w: 1, h: usableHeight + 2 },
     ],
-    doorTiles: [],
+    doorTiles,
   };
+}
+
+function isSpecConnected(grid: { width: number; height: number }, spec: BaseSpec): boolean {
+  const gm = GridMap.buildFromSpec(grid, spec);
+  const exitTiles: Vec2[] = [];
+  const barTiles: Vec2[] = [];
+  const gymTiles: Vec2[] = [];
+  for (let y = 0; y < gm.height; y++) {
+    for (let x = 0; x < gm.width; x++) {
+      const t = gm.get(x, y);
+      if (t.tag === "EXIT") exitTiles.push({ x, y });
+      if (t.tag === "BAR") barTiles.push({ x, y });
+      if (t.tag === "GYM") gymTiles.push({ x, y });
+    }
+  }
+  const exit = exitTiles[0];
+  const bar = barTiles[Math.floor(barTiles.length / 2)];
+  const gym = gymTiles[Math.floor(gymTiles.length / 2)];
+  if (!exit || !bar || !gym) return false;
+  const barPath = aStar8(gm, bar, exit);
+  const gymPath = aStar8(gm, gym, exit);
+  return Boolean(barPath && gymPath);
 }
 
 function rectsOverlap(a: RectSpec, b: RectSpec): boolean {
@@ -369,6 +439,12 @@ export async function generateMaps(opts: GenerateOptions): Promise<BaseSpecFile[
     };
 
     const spec = buildSpec(grid, params);
+    if (!isSpecConnected(grid, spec)) {
+      // skip invalid layouts that block POIs from exit
+      // eslint-disable-next-line no-console
+      console.warn("Skipping disconnected map", params);
+      continue;
+    }
     const label = variant.name || `${opts.prefix}-${params.bandCount}b-${params.corridorWidth}cw-${params.bar?.w}bw`;
     const fileName = `${slugify(label)}.json`;
     const outPath = resolve(opts.outDir, fileName);

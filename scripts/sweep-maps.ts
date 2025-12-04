@@ -54,6 +54,7 @@ async function cli() {
     scenarios,
     tickRate: Number(args.tickRate ?? 20),
     heatmap: args.heatmap !== "false",
+    heatmapScale: Number(args.heatmapScale ?? 3),
   });
 
   await analyzeResults(

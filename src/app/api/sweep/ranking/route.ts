@@ -9,7 +9,16 @@ type RankingFile = {
     map: string;
     rank: number;
     score: number;
-    metrics: Record<string, number>;
+    metrics: {
+      avgPathLength: number;
+      corridorMeanDensity: number;
+      corridorPeakDensity: number;
+      stuckRate: number;
+      barOccupancyRatio: number;
+      gymOccupancyRatio: number;
+      meanOccupancy?: number;
+      exitSuccess: number;
+    };
     heatmaps?: string[];
     params?: unknown;
     mapFile?: string;
@@ -46,7 +55,16 @@ export async function GET(req: Request) {
     .sort((a, b) => a.rank - b.rank)
     .slice(0, Number.isFinite(top) ? top : 10);
 
-  const payload = [];
+  const payload: Array<{
+    map: string;
+    rank: number;
+    score: number;
+    metrics: RankingFile["maps"] extends Array<infer T> ? T extends { metrics: infer M } ? M : Record<string, number> : Record<string, number>;
+    params?: unknown;
+    mapFile?: string;
+    heatmap?: string | null;
+    heatmapPath?: string;
+  }> = [];
   for (const m of limited) {
     let heatmap: string | null = null;
     const heatPath = m.heatmaps?.[0];
@@ -62,6 +80,7 @@ export async function GET(req: Request) {
       params: m.params,
       mapFile: m.mapFile,
       heatmap,
+      heatmapPath: m.heatmaps?.[0],
     });
   }
 

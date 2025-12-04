@@ -1006,7 +1006,7 @@ export class Engine {
    * Returns centers for spawning, one per room.
    */
   private generateDorm(numAgents: number): Vec2[] {
-    numAgents = Math.max(1, Math.min(100, numAgents));
+    numAgents = Math.max(1, numAgents);
     const spawns: Vec2[] = [];
 
     const roomInteriorW = 4;

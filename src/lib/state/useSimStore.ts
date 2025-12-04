@@ -8,8 +8,10 @@ interface SimState {
   setSpeed: (s: SimSpeed) => void;
   setPaused: (p: boolean) => void;
   // agents & resets
-  agentCount: number;     // 1..100
+  agentCount: number;     // 1..maxAgents
+  maxAgents: number;
   setAgentCount: (n: number) => void;
+  setMaxAgents: (n: number) => void;
   resetNonce: number;     // bump to request a full reset at 06:00
   bumpReset: () => void;
   // renderer / selection
@@ -27,7 +29,13 @@ export const useSimStore = create<SimState>((set) => ({
   setPaused: (p) => set({ paused: p }),
 
   agentCount: 50,
-  setAgentCount: (n) => set({ agentCount: Math.max(1, Math.min(100, Math.floor(n))) }),
+  maxAgents: 120,
+  setMaxAgents: (n) => set({ maxAgents: Math.max(1, Math.floor(n)) }),
+  setAgentCount: (n) => set((state) => {
+    const max = Math.max(1, Math.floor(state.maxAgents));
+    const next = Math.max(1, Math.min(max, Math.floor(n)));
+    return { agentCount: next };
+  }),
   resetNonce: 0,
   bumpReset: () => set((s) => ({ resetNonce: s.resetNonce + 1 })),
 

@@ -52,12 +52,47 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
   const paintDragLastKey = useRef<string>("");
   const lockedToastRef = useRef(false);
   const renderCanvasRef = useRef<() => void>(() => { });
+  const baseZoomRef = useRef(1);
+  const miniVisibleRef = useRef(false);
+  const [miniVisible, setMiniVisible] = useState(false);
+  const [mapUrl, setMapUrl] = useState<string | null>(null);
+
+  const resetCamera = useCallback(() => {
+    const canvas = canvasRef.current;
+    const eng = engineRef.current;
+    if (!canvas || !eng) {
+      camera.offset = { x: 0, y: 0 };
+      camera.zoom = 1;
+      baseZoomRef.current = 1;
+      return;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    const worldW = eng.map.width * eng.cfg.pixelsPerTile;
+    const worldH = eng.map.height * eng.cfg.pixelsPerTile;
+    const viewW = canvas.clientWidth || worldW;
+    const viewH = canvas.clientHeight || worldH;
+    const zx = viewW / worldW;
+    const zy = viewH / worldH;
+    const bestZoom = Math.min(zx, zy);
+    baseZoomRef.current = bestZoom;
+    camera.zoom = bestZoom;
+    camera.offset = { x: (viewW * dpr - worldW * bestZoom) / 2, y: (viewH * dpr - worldH * bestZoom) / 2 };
+  }, [camera, canvasRef, engineRef]);
 
   useEffect(() => {
     if (!editable) setPaintTool("wall");
   }, [editable]);
 
   useEffect(() => {
+    const initialUrl = (() => {
+      if (typeof window === "undefined") return "/maps/base.json";
+      const params = new URLSearchParams(window.location.search);
+      const urlParam = params.get("map");
+      if (urlParam) return urlParam;
+      const stored = window.localStorage.getItem("simMapPath");
+      return stored || "/maps/base.json";
+    })();
+    setMapUrl(initialUrl);
     const cfg: EngineConfig = {
       grid: { width: 96, height: 60 },
       diagonal: true,
@@ -65,24 +100,41 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
       baseTickRate: 20,
       pixelsPerTile: 24,
     };
-
     const eng = new Engine(cfg);
     setEngine(eng);
     engineRef.current = eng;
+  }, []);
 
+  useEffect(() => {
+    if (!mapUrl) return;
     (async () => {
       try {
-        const res = await fetch("/maps/base.json");
+        const res = await fetch(mapUrl);
         const json: BaseSpecFile = await res.json();
-        if (!json || !json.spec) throw new Error("Invalid base.json");
+        if (!json || !json.spec) throw new Error("Invalid map JSON");
+        const grid = { width: json.width ?? 96, height: json.height ?? 60 };
+        const cfg: EngineConfig = {
+          grid,
+          diagonal: true,
+          seed: "party-sim-seed",
+          baseTickRate: 20,
+          pixelsPerTile: 24,
+        };
+        let eng = engineRef.current;
+        if (!eng || eng.cfg.grid.width !== grid.width || eng.cfg.grid.height !== grid.height) {
+          eng = new Engine(cfg, json.spec);
+          engineRef.current = eng;
+          setEngine(eng);
+        }
         setBaseSpec(json.spec);
         const initialAgentCount = useSimStore.getState().agentCount;
         eng.resetWorld(json.spec, initialAgentCount);
+        resetCamera();
       } catch (e) {
-        console.error("Failed to load /maps/base.json", e);
+        console.error("Failed to load map", e);
       }
     })();
-  }, [engineRef]);
+  }, [mapUrl, resetCamera]);
 
   useEffect(() => { engine?.setSpeed(speed); }, [engine, speed]);
   useEffect(() => { engine?.setPaused(paused); }, [engine, paused]);
@@ -91,19 +143,19 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     if (!engine || !baseSpec) return;
     engine.resetWorld(baseSpec, agentCount);
     resetCamera();
-  }, [resetNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resetNonce, resetCamera, baseSpec]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!engine) return;
     let raf = 0;
     const loop = (tMs: number) => {
       engine.advance(tMs / 1000);
-      renderCanvasRef.current();
-      raf = requestAnimationFrame(loop);
-    };
+    renderCanvasRef.current();
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [engine]);
+  };
+  raf = requestAnimationFrame(loop);
+  return () => cancelAnimationFrame(raf);
+}, [engine]);
 
   const [spaceDown, setSpaceDown] = useState(false);
   const panStart = useRef<{ x: number; y: number } | null>(null);
@@ -113,11 +165,6 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
     camera.zoomAt({ x: canvas.width / (2 * dpr), y: canvas.height / (2 * dpr) }, factor);
-  }, [camera]);
-
-  const resetCamera = useCallback(() => {
-    camera.offset = { x: 0, y: 0 };
-    camera.zoom = 1;
   }, [camera]);
 
   useEffect(() => {
@@ -411,7 +458,14 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
 
     ctx.restore(); // end world transform
 
-    renderMiniMap(cssW, cssH, ppt);
+    const showMini = Math.abs(camera.zoom - (baseZoomRef.current || camera.zoom)) > 0.01;
+    if (miniVisibleRef.current !== showMini) {
+      miniVisibleRef.current = showMini;
+      setMiniVisible(showMini);
+    }
+    if (showMini) {
+      renderMiniMap(cssW, cssH, ppt);
+    }
   }
 
   renderCanvasRef.current = renderCanvas;
@@ -667,13 +721,15 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
           onWheel={handleWheel}
           style={{ width: "100%", height: "100%", display: "block" }}
         />
-        <canvas
-          ref={miniCanvasRef}
-          width={160}
-          height={96}
-          className="pointer-events-none absolute right-3 top-3 rounded border border-slate-200 bg-white/90 shadow-sm"
-          style={{ width: 160, height: 96 }}
-        />
+        {miniVisible && (
+          <canvas
+            ref={miniCanvasRef}
+            width={160}
+            height={96}
+            className="pointer-events-none absolute right-3 top-3 rounded border border-slate-200 bg-white/90 shadow-sm"
+            style={{ width: 160, height: 96 }}
+          />
+        )}
         <div className="pointer-events-none absolute left-3 top-3 z-10 rounded border border-slate-200 bg-white/90 px-2 py-1 text-xs font-mono text-slate-700 shadow-sm">
           <div>Ticks/s: {perfStats.ticksPerSecond}</div>
           <div>Agents: {perfStats.agentCount}</div>
