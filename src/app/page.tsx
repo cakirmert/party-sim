@@ -54,6 +54,9 @@ export default function Page() {
         <Link href="/map-editor" className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-white border border-slate-200 text-sm text-blue-600 shadow-sm hover:bg-slate-100">
           Open map editor
         </Link>
+        <Link href="/sweep-lab" className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-600 text-white text-sm shadow-sm hover:bg-emerald-500 ml-2">
+          Sweep lab
+        </Link>
       </div>
 
       <UIControls engineRef={engineRef} />
