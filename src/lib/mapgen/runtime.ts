@@ -327,7 +327,7 @@ export function buildSpecRuntime(
     outsideRect,
     exitRect,
     wallRects,
-    dormRowGap: clamp(params.dormRowGap ?? 1, 1, 3),
+    dormRowGap: clamp(params.dormRowGap ?? 1, 1, 5),
     doorTiles,
   };
 }

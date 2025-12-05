@@ -165,7 +165,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
       crossHeight: Math.max(0, mp.crossHeight),
       bandHeight: Math.max(6, mp.bandHeight),
       bandCount: Math.max(0, mp.bandCount),
-      dormRowGap: Math.max(2, mp.dormRowGap),
+      dormRowGap: Math.max(1, Math.min(5, mp.dormRowGap)),
       seed,
       bar: {
         ...DEFAULT_RUNTIME_PARAMS.bar,

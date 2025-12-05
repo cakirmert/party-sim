@@ -1006,8 +1006,10 @@ export class Engine {
    * All generated tiles are tagged LOCKED plus semantic tags (ROOM, CORRIDOR, DOOR).
    * Returns centers for spawning, one per room.
    */
-  private generateDorm(numAgents: number): Vec2[] {
-    numAgents = Math.max(1, numAgents);
+  private generateDorm(_numAgents: number): Vec2[] {
+    // keep requested count for future limits; generation itself produces full capacity
+    const requestedAgents = Math.max(1, _numAgents);
+    void requestedAgents;
     const spawns: Vec2[] = [];
 
     const roomInteriorW = 3;
@@ -1016,9 +1018,9 @@ export class Engine {
     const roomTotalW = roomInteriorW + wall * 2;
     const roomTotalH = roomInteriorH + wall * 2;
     const columnGap = 0;
-    const rowGap = Math.max(1, Math.min(3, this.map.spec?.dormRowGap ?? 1)); // keep a 1-tile corridor lane for doors
+    const doorGap = Math.max(1, Math.min(5, this.map.spec?.dormRowGap ?? 1)); // thickness of the shared corridor between stacked rows
     const stepX = roomTotalW + columnGap;
-    const stepY = roomTotalH + rowGap;
+    const stepY = roomTotalH + doorGap;
 
     this.corridorTiles = [];
 
@@ -1112,6 +1114,10 @@ export class Engine {
       const stampCorridorRow = (y: number, rect: { x: number; w: number }) => {
         for (let xx = rect.x; xx < rect.x + rect.w; xx++) {
           if (!this.map.inBounds(xx, y)) continue;
+          // avoid carving through POIs or the exit/outside zones
+          if (overlapsPoi(xx, y, 1, 1)) continue;
+          const existing = this.map.get(xx, y);
+          if (!existing.walkable && existing.tag !== "BUILDABLE") continue;
           this.map.set(xx, y, { walkable: true, moveCost: 1, tag: "CORRIDOR" });
         }
       };
@@ -1120,19 +1126,21 @@ export class Engine {
       for (const rect of buildableRects) {
         let y = rect.y;
         let placedRow = 0;
-        while (y + roomTotalH <= rect.y + rect.h && spawns.length < numAgents) {
-          const hasGapBelow = y + roomTotalH + rowGap <= rect.y + rect.h;
+        while (y + roomTotalH <= rect.y + rect.h) {
+          const hasGapBelow = y + roomTotalH + doorGap <= rect.y + rect.h;
           const doorDir: "up" | "down" = hasGapBelow ? "down" : (placedRow > 0 ? "up" : "down");
 
           let x = rect.x;
-          while (x + roomTotalW <= rect.x + rect.w && spawns.length < numAgents) {
+          while (x + roomTotalW <= rect.x + rect.w) {
             placeRoom(x, y, doorDir);
             x += stepX;
           }
 
           if (hasGapBelow) {
             const gapY = y + roomTotalH;
-            stampCorridorRow(gapY, rect);
+            for (let gy = 0; gy < doorGap && gapY + gy < rect.y + rect.h; gy++) {
+              stampCorridorRow(gapY + gy, rect);
+            }
           }
 
           y += stepY;
@@ -1140,7 +1148,7 @@ export class Engine {
         }
       }
 
-      return spawns.slice(0, numAgents);
+      return spawns;
     }
 
     const margin = 4;
@@ -1196,7 +1204,7 @@ export class Engine {
 
     const placeRow = (top: number, doorDir: "up" | "down") => {
       let x = margin;
-      while (x + roomTotalW <= this.map.width - margin && spawns.length < numAgents) {
+      while (x + roomTotalW <= this.map.width - margin) {
         if (!rectConflicts(x, top, roomTotalW, roomTotalH)) {
           placeRoom(x, top, doorDir);
         }
@@ -1214,18 +1222,16 @@ export class Engine {
     const topRowTop = corridorY0 - roomTotalH;
     if (topRowTop >= margin) {
       placeRow(topRowTop, "down");
-      if (spawns.length < numAgents && topRowTop - stepY >= margin) {
+      if (topRowTop - stepY >= margin) {
         placeRow(topRowTop - stepY, "down");
       }
     }
 
-    if (spawns.length < numAgents) {
-      const bottomRowTop = corridorY1 + 1;
-      if (bottomRowTop + roomTotalH <= this.map.height - margin) {
-        placeRow(bottomRowTop, "up");
-        if (spawns.length < numAgents && bottomRowTop + stepY + roomTotalH <= this.map.height - margin) {
-          placeRow(bottomRowTop + stepY, "up");
-        }
+    const bottomRowTop = corridorY1 + 1;
+    if (bottomRowTop + roomTotalH <= this.map.height - margin) {
+      placeRow(bottomRowTop, "up");
+      if (bottomRowTop + stepY + roomTotalH <= this.map.height - margin) {
+        placeRow(bottomRowTop + stepY, "up");
       }
     }
 
@@ -1235,6 +1241,6 @@ export class Engine {
       this.map.set(x, corridorMid, { ...tile, walkable: true, moveCost: 1, tag: "CORRIDOR" });
     }
 
-    return spawns.slice(0, numAgents);
+    return spawns;
   }
 }
