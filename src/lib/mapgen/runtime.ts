@@ -103,7 +103,7 @@ export function buildSpecRuntime(
   const margin = 3;
   const crossHeight = Math.max(0, params.crossHeight || 0);
   const outsideHeight = Math.max(2, params.outsideHeight || 3);
-  const rowGap = clamp(params.dormRowGap ?? 2, 1, 3);
+  const rowGap = clamp(params.dormRowGap ?? 2, 1, 5);
   const rng = mulberry32(seedFromString(params.seed || "map"));
   const usableBottom = grid.height - margin - outsideHeight - 1;
   const usableTop = margin;
@@ -255,7 +255,11 @@ export function buildSpecRuntime(
     const useLeft = corridorCenterX <= rect.x;
     const x = useLeft ? leftSide : rightSide;
     const y = clamp(cy, rect.y, rect.y + rect.h - 1);
-    doorTiles.push({ x, y });
+    // widen entrance to 3 tiles tall
+    for (let dy = -1; dy <= 1; dy++) {
+      const yy = clamp(y + dy, rect.y, rect.y + rect.h - 1);
+      doorTiles.push({ x, y: yy });
+    }
   };
   makeSideDoor(barRect);
   makeSideDoor(gymRect);
@@ -275,22 +279,27 @@ export function buildSpecRuntime(
 
   doorTiles.forEach(d => addCorridorBridge(d));
 
-  const padding = 4;
+  const padding = 6;
   const paddedBar = { x: barRect.x - padding, y: barRect.y - padding, w: barRect.w + padding * 2, h: barRect.h + padding * 2 };
   const paddedGym = { x: gymRect.x - padding, y: gymRect.y - padding, w: gymRect.w + padding * 2, h: gymRect.h + padding * 2 };
   const paddedOutside = { ...outsideRect };
   const paddedExit = { ...exitRect };
   const paddedPois = [paddedBar, paddedGym, paddedOutside, paddedExit];
 
-  const prunedCorridors: RectSpec[] = [];
-  corridorRects.forEach(r => {
-    let slices = [r];
-    for (const poi of paddedPois) {
-      slices = slices.flatMap(s => subtractRect(s, poi));
-      if (!slices.length) break;
-    }
-    prunedCorridors.push(...slices);
-  });
+  const pruneCorridors = (rects: RectSpec[]) => {
+    const pruned: RectSpec[] = [];
+    rects.forEach(r => {
+      let slices = [r];
+      for (const poi of paddedPois) {
+        slices = slices.flatMap(s => subtractRect(s, poi));
+        if (!slices.length) break;
+      }
+      pruned.push(...slices);
+    });
+    return pruned;
+  };
+
+  const prunedCorridors = pruneCorridors(corridorRects);
 
   const bottomWallY = outsideRect.y - 1;
   const sideWallHeight = bottomWallY - (usableTop - 1) + 1;
