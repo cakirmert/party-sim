@@ -356,6 +356,13 @@ export class Engine {
     return "night";
   }
 
+  private isMax(currentValue: number, otherValues: number[]) {
+    for (const v of otherValues) {
+      if (v > currentValue) return false;
+    }
+    return true;
+  }
+
   private pickWanderTarget(agent: Agent): WanderTarget | null {
     const agentProps = AGENT_PROPS[agent.agentType];
     const timeOfDay = this.getTimeOfDay();
@@ -363,10 +370,12 @@ export class Engine {
     const currentProps = agentProps[dayOfWeek][timeOfDay];
     const gymCoeff = currentProps.gym * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
     const barCoeff = currentProps.bar * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
+    const outsideCoeff = currentProps.outside * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
     const roomCoeff = currentProps.room * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
 
-    const center = gymCoeff > barCoeff && gymCoeff > roomCoeff ? "GYM"
-      : barCoeff > gymCoeff && barCoeff > roomCoeff ? "BAR"
+    const center = this.isMax(gymCoeff, [barCoeff, outsideCoeff, roomCoeff]) ? "GYM"
+      : this.isMax(barCoeff, [gymCoeff, outsideCoeff, roomCoeff]) ? "BAR"
+      : this.isMax(outsideCoeff, [gymCoeff, barCoeff, roomCoeff]) ? "OUTSIDE"
         : "ROOM";
 
     const agentRoom = parseInt(agent.roomId?.split("R")[1] || "0", 10);
