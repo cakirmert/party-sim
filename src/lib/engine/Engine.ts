@@ -1010,13 +1010,13 @@ export class Engine {
     numAgents = Math.max(1, numAgents);
     const spawns: Vec2[] = [];
 
-    const roomInteriorW = 4;
+    const roomInteriorW = 3;
     const roomInteriorH = 3;
     const wall = 1;
     const roomTotalW = roomInteriorW + wall * 2;
     const roomTotalH = roomInteriorH + wall * 2;
     const columnGap = 0;
-    const rowGap = Math.max(0, Math.min(3, this.map.spec?.dormRowGap ?? 0)); // configurable sweep gap, allow tight stacking
+    const rowGap = Math.max(1, Math.min(3, this.map.spec?.dormRowGap ?? 1)); // keep a 1-tile corridor lane for doors
     const stepX = roomTotalW + columnGap;
     const stepY = roomTotalH + rowGap;
 
@@ -1025,11 +1025,40 @@ export class Engine {
     const buildableRects = this.map.spec?.buildableRects;
 
     if (buildableRects && buildableRects.length) {
+      const poiPadding = 3;
+      const specPois = this.map.spec;
+      const paddedBar = specPois ? {
+        x: specPois.barRect.x - poiPadding,
+        y: specPois.barRect.y - poiPadding,
+        w: specPois.barRect.w + poiPadding * 2,
+        h: specPois.barRect.h + poiPadding * 2,
+      } : undefined;
+      const paddedGym = specPois ? {
+        x: specPois.gymRect.x - poiPadding,
+        y: specPois.gymRect.y - poiPadding,
+        w: specPois.gymRect.w + poiPadding * 2,
+        h: specPois.gymRect.h + poiPadding * 2,
+      } : undefined;
+      const overlapsPoi = (x: number, y: number, w: number, h: number) => {
+        const rect = { x, y, w, h };
+        const overlap = (a: { x: number; y: number; w: number; h: number } | undefined, b: { x: number; y: number; w: number; h: number }) => {
+          if (!a) return false;
+          return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+        };
+        if (overlap(paddedBar, rect)) return true;
+        if (overlap(paddedGym, rect)) return true;
+        if (specPois && overlap({ ...specPois.outsideRect, w: specPois.outsideRect.w, h: specPois.outsideRect.h }, rect)) return true;
+        if (specPois && overlap({ ...specPois.exitRect, w: specPois.exitRect.w, h: specPois.exitRect.h }, rect)) return true;
+        return false;
+      };
+
       const placeRoom = (left: number, top: number, doorDir: "up" | "down") => {
         const spawn: Vec2 = {
           x: left + wall + Math.floor(roomInteriorW / 2),
           y: top + wall + Math.floor(roomInteriorH / 2),
         };
+
+        if (overlapsPoi(left, top, roomTotalW, roomTotalH)) return;
 
         // Build room walls and interior
         for (let yy = 0; yy < roomTotalH; yy++) {
