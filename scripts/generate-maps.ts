@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { basename, resolve, relative } from "node:path";
 import { GridMap } from "../src/lib/engine/GridMap";
 import { aStar8 } from "../src/lib/engine/Pathfinder";
-import type { Vec2 } from "../src/lib/engine/Types";
+import type { GridSize, Vec2 } from "../src/lib/engine/Types";
 import type { BaseSpec, RectSpec } from "../src/lib/engine/Types";
 import {
   BaseSpecFile,
@@ -18,14 +18,14 @@ import {
 
 type Side = "left" | "right";
 
-type PoiConfig = {
+export type PoiConfig = {
   w: number;
   h: number;
   side: Side;
   yOffset: number;
 };
 
-type VariantParams = {
+export type VariantParams = {
   name?: string;
   corridorWidth?: number;
   crossHeight?: number;
@@ -38,7 +38,7 @@ type VariantParams = {
   seed?: string;
 };
 
-type RangeConfig = {
+export type RangeConfig = {
   corridorWidth?: number[];
   crossHeight?: number[];
   bandHeight?: number[];
@@ -66,15 +66,16 @@ type GenerateOptions = {
   gridOverride?: { width: number; height: number };
 };
 
-const DEFAULT_TEMPLATE = "public/maps/base.json";
+export const DEFAULT_TEMPLATE = "public/maps/base.json";
+export const DEFAULT_GRID: GridSize = { width: 120, height: 70 };
 const MIN_ROOM_SIZE = 6; // matches dorm generator expectations
 const MIN_CORRIDOR_WIDTH = 3;
 
-const DEFAULT_RANGE: RangeConfig = {
+export const DEFAULT_RANGE: RangeConfig = {
   corridorWidth: [6, 8, 10, 12],
   crossHeight: [3, 4, 5],
-  bandHeight: [8, 10, 12],
-  bandCount: [3],
+  bandHeight: [8, 10, 11, 12],
+  bandCount: [3, 4],
   barWidth: [13, 15],
   barHeight: [4, 5, 6],
   barSide: ["right", "left"],
@@ -85,6 +86,19 @@ const DEFAULT_RANGE: RangeConfig = {
   gymYOffset: [-2, 0, 2],
   outsideHeight: [3, 4, 5],
   exitWidth: [8, 10, 12],
+};
+
+export const DEFAULT_BASE_PARAMS: Required<VariantParams> = {
+  corridorWidth: 12,
+  crossHeight: 4,
+  bandHeight: 11,
+  bandCount: 4,
+  bar: { w: 15, h: 6, side: "right", yOffset: 0 },
+  gym: { w: 10, h: 5, side: "left", yOffset: 0 },
+  outsideHeight: 4,
+  exitWidth: 12,
+  name: "base-template",
+  seed: "homepage",
 };
 
 function clamp(n: number, lo: number, hi: number) {
@@ -126,7 +140,52 @@ function cartesianPick(ranges: unknown[][]): unknown[][] {
   return acc;
 }
 
-function buildSpec(grid: { width: number; height: number }, params: Required<VariantParams>): BaseSpec {
+function subtractRect(rect: RectSpec, cut: RectSpec): RectSpec[] {
+  if (!rectsOverlap(rect, cut)) return [rect];
+
+  const rx0 = rect.x;
+  const ry0 = rect.y;
+  const rx1 = rect.x + rect.w;
+  const ry1 = rect.y + rect.h;
+  const cx0 = cut.x;
+  const cy0 = cut.y;
+  const cx1 = cut.x + cut.w;
+  const cy1 = cut.y + cut.h;
+
+  const ix0 = Math.max(rx0, cx0);
+  const iy0 = Math.max(ry0, cy0);
+  const ix1 = Math.min(rx1, cx1);
+  const iy1 = Math.min(ry1, cy1);
+
+  const out: RectSpec[] = [];
+
+  // top band
+  if (iy0 > ry0) out.push({ x: rx0, y: ry0, w: rect.w, h: iy0 - ry0 });
+  // bottom band
+  if (iy1 < ry1) out.push({ x: rx0, y: iy1, w: rect.w, h: ry1 - iy1 });
+
+  const midH = Math.max(0, iy1 - iy0);
+  if (midH > 0) {
+    if (ix0 > rx0) out.push({ x: rx0, y: iy0, w: ix0 - rx0, h: midH });
+    if (ix1 < rx1) out.push({ x: ix1, y: iy0, w: rx1 - ix1, h: midH });
+  }
+
+  return out.filter(r => r.w >= MIN_ROOM_SIZE && r.h >= MIN_ROOM_SIZE);
+}
+
+function carveBuildables(rects: RectSpec[], pois: RectSpec[]): RectSpec[] {
+  const carved: RectSpec[] = [];
+  for (const rect of rects) {
+    let pieces = [rect];
+    for (const poi of pois) {
+      pieces = pieces.flatMap(r => subtractRect(r, poi));
+    }
+    carved.push(...pieces);
+  }
+  return carved;
+}
+
+export function buildSpec(grid: { width: number; height: number }, params: Required<VariantParams>): BaseSpec {
   const margin = 3;
   const crossHeight = Math.max(2, params.crossHeight || 3);
   const outsideHeight = Math.max(2, params.outsideHeight || 3);
@@ -258,21 +317,35 @@ function buildSpec(grid: { width: number; height: number }, params: Required<Var
 
   doorTiles.forEach(d => addCorridorBridge(d));
 
-  const overlapsPoi = (r: RectSpec) => rectsOverlap(r, barRect) || rectsOverlap(r, gymRect);
-  const filteredBuildables = buildableRects.filter(r => !overlapsPoi(r));
+  const carvedBuildables = carveBuildables(buildableRects, [barRect, gymRect]);
+
+  const bottomWallY = outsideRect.y - 1;
+  const sideWallHeight = bottomWallY - (usableTop - 1) + 1;
+  const wallRects: RectSpec[] = [
+    { x: margin - 1, y: usableTop - 1, w: grid.width - (margin - 1) * 2, h: 1 },
+    { x: margin - 1, y: usableTop - 1, w: 1, h: sideWallHeight },
+    { x: grid.width - margin, y: usableTop - 1, w: 1, h: sideWallHeight },
+  ];
+
+  // bottom wall, leave a gap for the exit width
+  const leftSpan = exitX0 - (margin - 1);
+  if (leftSpan > 0) {
+    wallRects.push({ x: margin - 1, y: bottomWallY, w: leftSpan, h: 1 });
+  }
+  const rightStart = exitX0 + exitWidth;
+  const rightSpan = grid.width - (margin - 1) - rightStart;
+  if (rightSpan > 0) {
+    wallRects.push({ x: rightStart, y: bottomWallY, w: rightSpan, h: 1 });
+  }
 
   return {
-    buildableRects: filteredBuildables,
+    buildableRects: carvedBuildables,
     corridorRects,
     barRect,
     gymRect,
     outsideRect,
     exitRect,
-    wallRects: [
-      { x: margin - 1, y: usableTop - 1, w: grid.width - (margin - 1) * 2, h: 1 },
-      { x: margin - 1, y: usableTop - 1, w: 1, h: usableHeight + 2 },
-      { x: grid.width - margin, y: usableTop - 1, w: 1, h: usableHeight + 2 },
-    ],
+    wallRects,
     doorTiles,
   };
 }
@@ -387,7 +460,10 @@ function expandRanges(range: RangeConfig): VariantParams[] {
 
 export async function generateMaps(opts: GenerateOptions): Promise<BaseSpecFile[]> {
   const template = await loadTemplate(opts.templatePath);
-  const grid = opts.gridOverride ?? { width: template.width, height: template.height };
+  const grid = opts.gridOverride ?? {
+    width: template.width ?? DEFAULT_GRID.width,
+    height: template.height ?? DEFAULT_GRID.height,
+  };
 
   let variants: VariantParams[] = [];
   if (opts.explicit && opts.explicit.length) {

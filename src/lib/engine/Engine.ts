@@ -1014,16 +1014,16 @@ export class Engine {
     const wall = 1;
     const roomTotalW = roomInteriorW + wall * 2;
     const roomTotalH = roomInteriorH + wall * 2;
-    const stepX = roomInteriorW + wall;
-    const stepY = roomInteriorH + wall;
+    const columnGap = 0;
+    const rowGap = 1; // leave a corridor lane between stacked rows
+    const stepX = roomTotalW + columnGap;
+    const stepY = roomTotalH + rowGap;
 
     this.corridorTiles = [];
 
     const buildableRects = this.map.spec?.buildableRects;
 
     if (buildableRects && buildableRects.length) {
-      console.log("buildable rects:", buildableRects);
-
       const placeRoom = (left: number, top: number, doorDir: "up" | "down") => {
         const spawn: Vec2 = {
           x: left + wall + Math.floor(roomInteriorW / 2),
@@ -1079,16 +1079,34 @@ export class Engine {
         spawns.push(spawn);
       };
 
+      const stampCorridorRow = (y: number, rect: { x: number; w: number }) => {
+        for (let xx = rect.x; xx < rect.x + rect.w; xx++) {
+          if (!this.map.inBounds(xx, y)) continue;
+          this.map.set(xx, y, { walkable: true, moveCost: 1, tag: "CORRIDOR" });
+        }
+      };
+
       // Build dorms inside each JSON rect (not just one block!)
       for (const rect of buildableRects) {
         let y = rect.y;
+        let placedRow = 0;
         while (y + roomTotalH <= rect.y + rect.h && spawns.length < numAgents) {
+          const hasGapBelow = y + roomTotalH + rowGap <= rect.y + rect.h;
+          const doorDir: "up" | "down" = hasGapBelow ? "down" : (placedRow > 0 ? "up" : "down");
+
           let x = rect.x;
           while (x + roomTotalW <= rect.x + rect.w && spawns.length < numAgents) {
-            placeRoom(x, y, "down");
+            placeRoom(x, y, doorDir);
             x += stepX;
           }
+
+          if (hasGapBelow) {
+            const gapY = y + roomTotalH;
+            stampCorridorRow(gapY, rect);
+          }
+
           y += stepY;
+          placedRow++;
         }
       }
 
