@@ -127,8 +127,15 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
           setEngine(eng);
         }
         setBaseSpec(json.spec);
-        const initialAgentCount = useSimStore.getState().agentCount;
+        const store = useSimStore.getState();
+        const initialAgentCount = store.agentCount;
         eng.resetWorld(json.spec, initialAgentCount);
+        const cap = eng.getRoomCapacity();
+        store.setMaxAgents(cap);
+        if (store.agentCount > cap) {
+          store.setAgentCount(cap);
+          eng.resetWorld(json.spec, cap);
+        }
         resetCamera();
       } catch (e) {
         console.error("Failed to load map", e);
@@ -142,6 +149,14 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
   useEffect(() => {
     if (!engine || !baseSpec) return;
     engine.resetWorld(baseSpec, agentCount);
+    const store = useSimStore.getState();
+    const cap = engine.getRoomCapacity();
+    store.setMaxAgents(cap);
+    if (store.agentCount > cap) {
+      const next = cap;
+      store.setAgentCount(next);
+      engine.resetWorld(baseSpec, next);
+    }
     resetCamera();
   }, [resetNonce, resetCamera, baseSpec]); // eslint-disable-line react-hooks/exhaustive-deps
 

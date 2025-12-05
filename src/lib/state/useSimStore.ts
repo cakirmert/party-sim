@@ -28,8 +28,8 @@ export const useSimStore = create<SimState>((set) => ({
   setSpeed: (s) => set({ speed: s }),
   setPaused: (p) => set({ paused: p }),
 
-  agentCount: 50,
-  maxAgents: 120,
+  agentCount: 140,
+  maxAgents: 200,
   setMaxAgents: (n) => set({ maxAgents: Math.max(1, Math.floor(n)) }),
   setAgentCount: (n) => set((state) => {
     const max = Math.max(1, Math.floor(state.maxAgents));

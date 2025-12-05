@@ -118,6 +118,7 @@ export class Engine {
       densityRecomputesPerSecond: this.lastDensityRecomputes,
     };
   }
+  getRoomCapacity() { return this.roomSpawns.length; }
   setSpeed(mult: number) { this.clock.setSpeed(mult); }
   setPaused(p: boolean) { this.clock.setPaused(p); }
   stepOnce() {
@@ -1010,12 +1011,12 @@ export class Engine {
     const spawns: Vec2[] = [];
 
     const roomInteriorW = 4;
-    const roomInteriorH = 4;
+    const roomInteriorH = 3;
     const wall = 1;
     const roomTotalW = roomInteriorW + wall * 2;
     const roomTotalH = roomInteriorH + wall * 2;
     const columnGap = 0;
-    const rowGap = 1; // leave a corridor lane between stacked rows
+    const rowGap = Math.max(0, Math.min(3, this.map.spec?.dormRowGap ?? 0)); // configurable sweep gap, allow tight stacking
     const stepX = roomTotalW + columnGap;
     const stepY = roomTotalH + rowGap;
 

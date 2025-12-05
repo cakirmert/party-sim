@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "nanoid": "^5.1.6",
-    "next": "15.5.4",
+    "next": "^15.5.7",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "zustand": "^5.0.8"
@@ -31,7 +31,7 @@
     "eslint-config-next": "15.5.4",
     "pngjs": "^7.0.0",
     "tailwindcss": "^4",
-    "tsx": "^4.19.0",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

@@ -54,6 +54,8 @@ export interface BaseSpec {
   exitRect: RectSpec;         // ROAD/EXIT area (walkable)
   wallRects?: RectSpec[];     // WALLS
   doorTiles?: { x: number; y: number }[];
+  /** Optional gap (tiles) between stacked dorm rows; defaults to 1 */
+  dormRowGap?: number;
 }
 
 export interface EngineConfig {

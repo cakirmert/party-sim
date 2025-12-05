@@ -21,7 +21,6 @@ export default function UIControls({ engineRef }: Props) {
   const agentCount = useSimStore(s => s.agentCount);
   const maxAgents = useSimStore(s => s.maxAgents);
   const setAgentCount = useSimStore(s => s.setAgentCount);
-  const setMaxAgents = useSimStore(s => s.setMaxAgents);
   const bumpReset = useSimStore(s => s.bumpReset);
 
   const setSelectedAgentId = useSimStore(s => s.setSelectedAgentId);
@@ -147,17 +146,11 @@ export default function UIControls({ engineRef }: Props) {
           onClick={() => setSpeed(s)}>{s}×</button>
       ))}
 
-      <span className="ml-4 text-sm">Agents (max {maxAgents}):</span>
+      <span className="ml-4 text-sm">Agents (capacity {maxAgents}):</span>
       <input
         type="number" min={1} max={9999} value={agentCount}
         onChange={(e) => setAgentCount(Number(e.target.value))}
         className="w-20 bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-      />
-      <input
-        type="number" min={agentCount} max={9999} value={maxAgents}
-        onChange={(e) => setMaxAgents(Number(e.target.value))}
-        className="w-24 bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-        title="Set max agents"
       />
       <button className="px-2 py-1 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 transition" onClick={() => bumpReset()}>
         Reset @06:00
