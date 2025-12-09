@@ -27,7 +27,7 @@ export const DEFAULT_RUNTIME_PARAMS: Required<VariantParams> = {
   crossHeight: 0,
   bandHeight: 12,
   bandCount: 0, // 0 => auto-fill vertical space
-  dormRowGap: 2,
+  dormRowGap: 3,
   bar: { w: 15, h: 6, side: "right", yOffset: 0 },
   gym: { w: 10, h: 5, side: "left", yOffset: 0 },
   outsideHeight: 4,

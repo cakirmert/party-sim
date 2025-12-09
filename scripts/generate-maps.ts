@@ -75,21 +75,21 @@ const MIN_ROOM_SIZE = 6; // matches dorm generator expectations
 const MIN_CORRIDOR_WIDTH = 2;
 
 export const DEFAULT_RANGE: RangeConfig = {
-  corridorWidth: [2, 3, 4, 6],
-  crossHeight: [0, 1, 2],
-  bandHeight: [8, 10, 11, 12],
-  bandCount: [3, 4, 5],
-  dormRowGap: [1, 2],
-  barWidth: [13, 15],
-  barHeight: [4, 5, 6],
+  corridorWidth: [2, 3, 4],
+  crossHeight: [0],
+  bandHeight: [12],
+  bandCount: [0, 4],
+  dormRowGap: [2, 3],
+  barWidth: [14, 16],
+  barHeight: [5, 6],
   barSide: ["right", "left"],
-  barYOffset: [-2, 0, 2],
-  gymWidth: [6, 8, 10],
-  gymHeight: [4, 5, 6],
+  barYOffset: [-1, 1],
+  gymWidth: [8, 10],
+  gymHeight: [4, 5],
   gymSide: ["left", "right"],
-  gymYOffset: [-2, 0, 2],
-  outsideHeight: [3, 4, 5],
-  exitWidth: [8, 10, 12],
+  gymYOffset: [-1, 1],
+  outsideHeight: [4],
+  exitWidth: [10, 12],
 };
 
 export const DEFAULT_BASE_PARAMS: Required<VariantParams> = {
@@ -418,7 +418,7 @@ async function cli() {
   const bandCountOverride = parseNumberList(typeof args.bandCount === "string" ? args.bandCount : undefined);
   if (bandCountOverride.length) rangeOverrides.bandCount = bandCountOverride;
   const dormRowGapOverride = parseNumberList(typeof args.rowGap === "string" ? args.rowGap : undefined);
-  if (dormRowGapOverride.length) rangeOverrides.dormRowGap = dormRowGapOverride.map(n => Math.max(1, Math.min(3, n)));
+  if (dormRowGapOverride.length) rangeOverrides.dormRowGap = dormRowGapOverride.map(n => Math.max(1, Math.min(5, n)));
   const outsideOverride = parseNumberList(typeof args.outside === "string" ? args.outside : undefined);
   if (outsideOverride.length) rangeOverrides.outsideHeight = outsideOverride;
   const exitOverride = parseNumberList(typeof args.exitWidth === "string" ? args.exitWidth : undefined);
