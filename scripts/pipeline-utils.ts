@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
 import { dirname, extname, basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { fork, type ChildProcess } from "node:child_process";
+import { cpus } from "node:os";
 import type { BaseSpec } from "../src/lib/engine/Types";
 
 export type BaseSpecFile = {
@@ -96,4 +98,117 @@ export function directCliRun(importMetaUrl?: string): boolean {
     return require.main === module;
   }
   return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Worker Pool for Parallel Execution
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type WorkerTask<T> = {
+  id: number;
+  data: T;
+};
+
+export type WorkerResult<R> = {
+  id: number;
+  result?: R;
+  error?: string;
+};
+
+export type ProgressCallback = (completed: number, total: number, taskId: number) => void;
+
+/**
+ * Get default worker count (CPU cores - 1, minimum 1)
+ */
+export function getDefaultWorkerCount(): number {
+  return Math.max(1, cpus().length - 1);
+}
+
+/**
+ * Run tasks in parallel using child processes (fork).
+ * Uses tsx to handle TypeScript files.
+ * @param tasks - Array of task data to process
+ * @param workerPath - Absolute path to worker script
+ * @param maxWorkers - Maximum concurrent workers (default: CPU cores - 1)
+ * @param onProgress - Optional callback for progress updates
+ * @returns Array of results in same order as input tasks
+ */
+export async function runParallelTasks<T, R>(
+  tasks: T[],
+  workerPath: string,
+  maxWorkers: number = getDefaultWorkerCount(),
+  onProgress?: ProgressCallback
+): Promise<WorkerResult<R>[]> {
+  if (tasks.length === 0) return [];
+  
+  const workerCount = Math.min(maxWorkers, tasks.length);
+  const results: WorkerResult<R>[] = new Array(tasks.length);
+  let nextTaskIndex = 0;
+  let completedCount = 0;
+  
+  return new Promise((resolveAll, rejectAll) => {
+    const workers: ChildProcess[] = [];
+    let hasError = false;
+    
+    const assignTask = (worker: ChildProcess, workerIndex: number) => {
+      if (nextTaskIndex >= tasks.length || hasError) {
+        worker.kill();
+        return;
+      }
+      
+      const taskIndex = nextTaskIndex++;
+      const task: WorkerTask<T> = { id: taskIndex, data: tasks[taskIndex] };
+      worker.send(task);
+    };
+    
+    const onWorkerMessage = (worker: ChildProcess, workerIndex: number) => (msg: WorkerResult<R>) => {
+      results[msg.id] = msg;
+      completedCount++;
+      
+      if (onProgress) {
+        onProgress(completedCount, tasks.length, msg.id);
+      }
+      
+      if (completedCount === tasks.length) {
+        // All done - kill remaining workers
+        workers.forEach(w => w.kill());
+        resolveAll(results);
+      } else {
+        // Assign next task to this worker
+        assignTask(worker, workerIndex);
+      }
+    };
+    
+    const onWorkerError = (workerIndex: number) => (err: Error) => {
+      if (hasError) return;
+      hasError = true;
+      // eslint-disable-next-line no-console
+      console.error(`Worker ${workerIndex} error:`, err);
+      workers.forEach(w => w.kill());
+      rejectAll(err);
+    };
+    
+    // Spawn workers using fork with tsx
+    for (let i = 0; i < workerCount; i++) {
+      // Use tsx to run the TypeScript worker
+      const worker = fork(workerPath, [], {
+        execArgv: ["--import", "tsx"],
+        stdio: ["pipe", "pipe", "pipe", "ipc"],
+      });
+      workers.push(worker);
+      
+      worker.on("message", onWorkerMessage(worker, i));
+      worker.on("error", onWorkerError(i));
+      worker.on("exit", (code) => {
+        // Workers exit with null code when killed after completion, which is expected
+        if (code !== 0 && code !== null && !hasError) {
+          // eslint-disable-next-line no-console
+          console.warn(`Worker ${i} exited with code ${code}`);
+        }
+      });
+      
+      // Assign initial task
+      assignTask(worker, i);
+    }
+  });
 }

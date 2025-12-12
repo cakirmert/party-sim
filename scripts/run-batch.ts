@@ -9,17 +9,20 @@ import {
   directCliRun,
   ensureDir,
   fileStem,
+  getDefaultWorkerCount,
   listJsonFiles,
   loadMapFile,
   parseArgv,
   parseCsv,
+  runParallelTasks,
   slugify,
   writeJson,
+  type WorkerResult,
 } from "./pipeline-utils";
 
-type Scenario = "weekday" | "weekend";
+export type Scenario = "weekday" | "weekend";
 
-type RunMetrics = {
+export type RunMetrics = {
   avgPathLength: number;
   pathSamples: number;
   meanOccupancy: number;
@@ -38,7 +41,7 @@ type RunMetrics = {
   hotspot: { x: number; y: number; value: number; tag?: string } | null;
 };
 
-type RunOutput = {
+export type RunOutput = {
   map: string;
   scenario: Scenario;
   seed: string;
@@ -85,7 +88,7 @@ function smoothGrid(occSum: Float64Array, width: number, height: number, steps: 
   return { grid: out, max };
 }
 
-type BatchOptions = {
+export type BatchOptions = {
   maps: string[];
   outDir: string;
   agentCount: number;
@@ -95,6 +98,27 @@ type BatchOptions = {
   tickRate: number;
   heatmap: boolean;
   heatmapScale: number;
+};
+
+/** Task for parallel simulation worker */
+export type SimulationTask = {
+  mapPath: string;
+  scenario: Scenario;
+  seed: string;
+  agentCount: number;
+  simMinutes: number;
+  tickRate: number;
+  heatmap: boolean;
+  heatmapScale: number;
+  outDir: string;
+};
+
+/** Result from parallel simulation worker */
+export type SimulationResult = {
+  outputPath: string;
+  mapName: string;
+  scenario: Scenario;
+  seed: string;
 };
 
 const DEFAULT_MAP_DIR = "public/maps/generated";
@@ -355,6 +379,108 @@ export async function runBatch(opts: BatchOptions): Promise<RunOutput[]> {
   }
 
   return results;
+}
+
+/**
+ * Run a single simulation task (used by worker threads).
+ * Loads map, runs simulation, saves results, returns summary.
+ */
+export async function runSimulationTask(task: SimulationTask): Promise<SimulationResult> {
+  const map = await loadMapFile(task.mapPath);
+  (map.meta ??= {}).sourcePath = task.mapPath;
+  
+  const opts: BatchOptions = {
+    maps: [task.mapPath],
+    outDir: task.outDir,
+    agentCount: task.agentCount,
+    seeds: [task.seed],
+    simMinutes: task.simMinutes,
+    scenarios: [task.scenario],
+    tickRate: task.tickRate,
+    heatmap: task.heatmap,
+    heatmapScale: task.heatmapScale,
+  };
+  
+  const run = await runSimulation(map, task.scenario, task.seed, opts);
+  const dir = resolve(task.outDir, slugify(map.name || fileStem(task.mapPath)), task.scenario);
+  await ensureDir(dir);
+  const outPath = resolve(dir, `run-${slugify(task.seed)}.json`);
+  await writeJson(outPath, run);
+  
+  return {
+    outputPath: outPath,
+    mapName: map.name || fileStem(task.mapPath),
+    scenario: task.scenario,
+    seed: task.seed,
+  };
+}
+
+/**
+ * Run batch simulations in parallel using worker threads.
+ */
+export async function runBatchParallel(
+  opts: BatchOptions & { workers?: number; onProgress?: (completed: number, total: number) => void }
+): Promise<SimulationResult[]> {
+  const workerPath = resolve(import.meta.dirname ?? __dirname, "sim-worker.ts");
+  const workerCount = opts.workers ?? getDefaultWorkerCount();
+  
+  // Build task list
+  const tasks: SimulationTask[] = [];
+  for (const mapPath of opts.maps) {
+    for (const scenario of opts.scenarios) {
+      for (const seed of opts.seeds) {
+        tasks.push({
+          mapPath,
+          scenario,
+          seed,
+          agentCount: opts.agentCount,
+          simMinutes: opts.simMinutes,
+          tickRate: opts.tickRate,
+          heatmap: opts.heatmap,
+          heatmapScale: opts.heatmapScale,
+          outDir: opts.outDir,
+        });
+      }
+    }
+  }
+  
+  // eslint-disable-next-line no-console
+  console.log(`Running ${tasks.length} simulations with ${workerCount} workers...`);
+  
+  const results = await runParallelTasks<SimulationTask, SimulationResult>(
+    tasks,
+    workerPath,
+    workerCount,
+    (completed, total, taskId) => {
+      // eslint-disable-next-line no-console
+      console.log(`[${completed}/${total}] Completed task ${taskId}`);
+      if (opts.onProgress) {
+        opts.onProgress(completed, total);
+      }
+    }
+  );
+  
+  // Extract successful results
+  const successful: SimulationResult[] = [];
+  const errors: string[] = [];
+  
+  for (const r of results) {
+    if (r.result) {
+      successful.push(r.result);
+    } else if (r.error) {
+      errors.push(`Task ${r.id}: ${r.error}`);
+    }
+  }
+  
+  if (errors.length) {
+    // eslint-disable-next-line no-console
+    console.warn(`${errors.length} tasks failed:\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n...and ${errors.length - 5} more` : ""}`);
+  }
+  
+  // eslint-disable-next-line no-console
+  console.log(`Completed ${successful.length}/${tasks.length} simulations`);
+  
+  return successful;
 }
 
 async function cli() {

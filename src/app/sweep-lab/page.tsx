@@ -41,11 +41,14 @@ type ProgressResponse = {
 const FIXED_OUTSIDE_HEIGHT = 4;
 const FIXED_HEATMAP_SCALE = 4;
 
+// Get default worker count (will be overridden by API on server)
+const DEFAULT_WORKERS = typeof navigator !== "undefined" ? Math.max(1, (navigator.hardwareConcurrency || 4) - 1) : 4;
+
 const DEFAULT_FORM = {
   count: 32,
   runs: 1,
   agents: "80,100,120",
-  minutes: 720,
+  minutes: 960, // 16 hours: 6am to 10pm
   seed: "ui-seed",
   rowGap: "2,3",
   barSize: "14x5,16x6,18x7",
@@ -57,6 +60,9 @@ const DEFAULT_FORM = {
   wWait: 0.3,
   wCluster: 0.2,
   wExit: 0.1,
+  // Parallel execution
+  parallel: true,
+  workers: DEFAULT_WORKERS,
 };
 
 export default function SweepLabPage() {
@@ -446,15 +452,55 @@ export default function SweepLabPage() {
                   />
                 </div>
               </Label>
-              <label className="flex items-center gap-2 col-span-2">
+              <Label text="Parallel workers" hint="Number of CPU cores to use for parallel simulation. More workers = faster but uses more RAM (~100MB each).">
                 <input
-                  type="checkbox"
-                  checked={form.heatmap}
-                  onChange={(e) => setForm({ ...form, heatmap: e.target.checked })}
+                  type="number"
+                  min={1}
+                  max={32}
+                  value={form.workers}
+                  onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
+                  className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
                 />
-                <span className="text-slate-300">Render heatmaps</span>
-              </label>
+              </Label>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.parallel}
+                    onChange={(e) => setForm({ ...form, parallel: e.target.checked })}
+                  />
+                  <span className="text-slate-300">Parallel execution</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.heatmap}
+                    onChange={(e) => setForm({ ...form, heatmap: e.target.checked })}
+                  />
+                  <span className="text-slate-300">Render heatmaps</span>
+                </label>
+              </div>
             </div>
+            
+            {/* Performance estimate */}
+            <div className="mt-3 p-2 rounded bg-slate-800/50 border border-white/10 text-xs text-slate-400">
+              <span className="font-medium text-slate-300">Estimated time: </span>
+              {form.parallel ? (
+                <span>
+                  ~{Math.ceil(variationInfo.totalSimulations * 3 / form.workers / 60)} minutes with {form.workers} workers
+                  {form.workers < DEFAULT_WORKERS && <span className="text-amber-400"> (increase workers for faster execution)</span>}
+                </span>
+              ) : (
+                <span className="text-amber-400">
+                  ~{Math.ceil(variationInfo.totalSimulations * 3 / 60)} minutes (sequential - enable parallel for {Math.ceil(variationInfo.totalSimulations * 3 / DEFAULT_WORKERS / 60)}min)
+                </span>
+              )}
+              <span className="block mt-1">
+                RAM usage: ~{form.parallel ? form.workers * 100 : 100}MB
+                {variationInfo.totalSimulations > 500 && <span className="text-amber-400"> • Large sweep - consider running overnight</span>}
+              </span>
+            </div>
+            
             <div className="mt-3 flex gap-2">
               <button
                 onClick={handleRun}
