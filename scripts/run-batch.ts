@@ -5,7 +5,7 @@ import { Engine } from "../src/lib/engine/Engine";
 import { aStar8 } from "../src/lib/engine/Pathfinder";
 import type { EngineConfig, Vec2 } from "../src/lib/engine/Types";
 import {
-  BaseSpecFile,
+  type BaseSpecFile,
   directCliRun,
   ensureDir,
   fileStem,
@@ -17,8 +17,11 @@ import {
   runParallelTasks,
   slugify,
   writeJson,
-  type WorkerResult,
 } from "./pipeline-utils";
+
+// Re-export for worker caching
+export type { BaseSpecFile };
+export { loadMapFile };
 
 export type Scenario = "weekday" | "weekend";
 
@@ -49,7 +52,17 @@ export type RunOutput = {
   simMinutes: number;
   steps: number;
   metrics: RunMetrics;
+  /** PNG heatmap (legacy mode) */
   heatmap?: { png: string; rel: string; maxMean: number; maxInstant: number };
+  /** JSON heatmap data - flat array of normalized values [0,1], row-major order */
+  heatmapData?: {
+    width: number;
+    height: number;
+    /** Normalized occupancy values [0,1], row-major. Length = width * height */
+    data: number[];
+    maxMean: number;
+    maxInstant: number;
+  };
   meta: Record<string, unknown>;
 };
 
@@ -98,6 +111,10 @@ export type BatchOptions = {
   tickRate: number;
   heatmap: boolean;
   heatmapScale: number;
+  /** Skip Gaussian blur for faster heatmap generation (default: false) */
+  heatmapFast?: boolean;
+  /** Store heatmap as JSON data instead of PNG (much faster, default: false) */
+  heatmapJson?: boolean;
 };
 
 /** Task for parallel simulation worker */
@@ -110,6 +127,8 @@ export type SimulationTask = {
   tickRate: number;
   heatmap: boolean;
   heatmapScale: number;
+  heatmapFast?: boolean;
+  heatmapJson?: boolean;
   outDir: string;
 };
 
@@ -119,6 +138,14 @@ export type SimulationResult = {
   mapName: string;
   scenario: Scenario;
   seed: string;
+};
+
+/** Cached derived map data (computed once per map+agentCount) */
+export type DerivedMapData = {
+  corridorIdx: number[];
+  barIdx: number[];
+  gymIdx: number[];
+  walkableCount: number;
 };
 
 const DEFAULT_MAP_DIR = "public/maps/generated";
@@ -179,25 +206,8 @@ function centerOfRect(rect: { x: number; y: number; w: number; h: number }): Vec
   return { x: Math.round(rect.x + rect.w / 2), y: Math.round(rect.y + rect.h / 2) };
 }
 
-async function runSimulation(map: BaseSpecFile, scenario: Scenario, seed: string, opts: BatchOptions): Promise<RunOutput> {
-  const cfg: EngineConfig = {
-    grid: { width: map.width, height: map.height },
-    diagonal: true,
-    seed,
-    baseTickRate: opts.tickRate,
-    pixelsPerTile: 1,
-  };
-  const engine = new Engine(cfg, map.spec);
-  engine.resetWorld(map.spec, opts.agentCount);
-  const scenarioDay = scenario === "weekend" ? 5 : 2;
-  engine.tod.dayOfWeek = scenarioDay;
-
-  const gridSize = map.width * map.height;
-  const occSum = new Float64Array(gridSize);
-  const occMax = new Uint16Array(gridSize);
-  const stepCounts = new Uint16Array(gridSize);
-  const touched: number[] = [];
-
+/** Compute derived map indices from an initialized Engine. Call once per map+agentCount. */
+export function computeDerivedMapData(engine: Engine, map: BaseSpecFile): DerivedMapData {
   const corridorIdx: number[] = [];
   const barIdx: number[] = [];
   const gymIdx: number[] = [];
@@ -213,6 +223,42 @@ async function runSimulation(map: BaseSpecFile, scenario: Scenario, seed: string
       if (tag === "GYM") gymIdx.push(idx);
     }
   }
+  return { corridorIdx, barIdx, gymIdx, walkableCount };
+}
+
+/** Options for runSimulation with optional cached data */
+type RunSimulationOpts = BatchOptions & {
+  /** Pre-computed derived map data (to avoid re-scanning tiles) */
+  derivedData?: DerivedMapData;
+};
+
+async function runSimulation(
+  map: BaseSpecFile,
+  scenario: Scenario,
+  seed: string,
+  opts: RunSimulationOpts
+): Promise<RunOutput> {
+  const cfg: EngineConfig = {
+    grid: { width: map.width, height: map.height },
+    diagonal: true,
+    seed,
+    baseTickRate: opts.tickRate,
+    pixelsPerTile: 1,
+    headless: true, // Skip events, density, perf stats for batch runs
+  };
+  const engine = new Engine(cfg, map.spec);
+  engine.resetWorld(map.spec, opts.agentCount);
+  const scenarioDay = scenario === "weekend" ? 5 : 2;
+  engine.tod.dayOfWeek = scenarioDay;
+
+  const gridSize = map.width * map.height;
+  const occSum = new Float64Array(gridSize);
+  const occMax = new Uint16Array(gridSize);
+  const stepCounts = new Uint16Array(gridSize);
+  const touched: number[] = [];
+
+  // Use cached derived data or compute fresh
+  const { corridorIdx, barIdx, gymIdx, walkableCount } = opts.derivedData ?? computeDerivedMapData(engine, map);
 
   let agentTicks = 0;
   let stuckTicks = 0;
@@ -220,14 +266,13 @@ async function runSimulation(map: BaseSpecFile, scenario: Scenario, seed: string
 
   for (let i = 0; i < steps; i++) {
     engine.stepOnce();
-    const agents = engine.getAgents();
-    agentTicks += agents.length;
-    for (const a of agents) {
+    agentTicks += engine.getAgentCount();
+    engine.forEachAgent((a) => {
       const idx = engine.map.index(a.pos.x, a.pos.y);
       if (stepCounts[idx] === 0) touched.push(idx);
       stepCounts[idx]++;
       if (a.stuckTicks >= 2) stuckTicks++;
-    }
+    });
 
     for (const idx of touched) {
       const c = stepCounts[idx];
@@ -290,34 +335,74 @@ async function runSimulation(map: BaseSpecFile, scenario: Scenario, seed: string
   }
 
   let heatmap: RunOutput["heatmap"];
+  let heatmapData: RunOutput["heatmapData"];
+  
   if (opts.heatmap) {
-    const scale = Math.max(1, Math.floor(opts.heatmapScale));
-    const smooth = smoothGrid(occSum, map.width, map.height, steps);
-    const png = new PNG({ width: map.width * scale, height: map.height * scale });
-    const maxForNorm = Math.max(1e-6, smooth.max);
-    smooth.grid.forEach((mean, idx) => {
-      const norm = mean / maxForNorm;
-      const [r, g, b] = heatColor(norm);
-      const x = idx % map.width;
-      const y = Math.floor(idx / map.width);
-      for (let sy = 0; sy < scale; sy++) {
-        for (let sx = 0; sx < scale; sx++) {
-          const px = x * scale + sx;
-          const py = y * scale + sy;
-          const o = (py * png.width + px) * 4;
-          png.data[o] = r;
-          png.data[o + 1] = g;
-          png.data[o + 2] = b;
-          png.data[o + 3] = 255;
-        }
+    // Compute normalized occupancy grid
+    const maxForNorm = Math.max(1e-6, maxMeanTile);
+    
+    if (opts.heatmapJson) {
+      // JSON mode: store normalized data inline (much faster, no PNG encoding)
+      const data: number[] = new Array(gridSize);
+      for (let i = 0; i < gridSize; i++) {
+        // Round to 3 decimal places to reduce JSON size
+        data[i] = Math.round((occSum[i] / steps / maxForNorm) * 1000) / 1000;
       }
-    });
-    const dir = resolve(opts.outDir, slugify(map.name || fileStem("map")), scenario);
-    await ensureDir(dir);
-    const pngPath = resolve(dir, `run-${slugify(seed)}__heatmap.png`);
-    const buffer = PNG.sync.write(png);
-    await fs.writeFile(pngPath, buffer);
-    heatmap = { png: pngPath, rel: relative(process.cwd(), pngPath), maxMean: maxMeanTile, maxInstant };
+      heatmapData = {
+        width: map.width,
+        height: map.height,
+        data,
+        maxMean: maxMeanTile,
+        maxInstant,
+      };
+    } else {
+      // PNG mode (legacy): render to image file
+      const scale = Math.max(1, Math.floor(opts.heatmapScale));
+      
+      // Fast mode: skip Gaussian blur, use raw occupancy data normalized
+      let grid: Float64Array;
+      let max: number;
+      if (opts.heatmapFast) {
+        // Direct normalization without blur
+        grid = new Float64Array(gridSize);
+        max = 0;
+        for (let i = 0; i < gridSize; i++) {
+          const v = occSum[i] / steps;
+          grid[i] = v;
+          if (v > max) max = v;
+        }
+      } else {
+        const smooth = smoothGrid(occSum, map.width, map.height, steps);
+        grid = smooth.grid;
+        max = smooth.max;
+      }
+      
+      const png = new PNG({ width: map.width * scale, height: map.height * scale });
+      const pngMaxNorm = Math.max(1e-6, max);
+      grid.forEach((mean, idx) => {
+        const norm = mean / pngMaxNorm;
+        const [r, g, b] = heatColor(norm);
+        const x = idx % map.width;
+        const y = Math.floor(idx / map.width);
+        for (let sy = 0; sy < scale; sy++) {
+          for (let sx = 0; sx < scale; sx++) {
+            const px = x * scale + sx;
+            const py = y * scale + sy;
+            const o = (py * png.width + px) * 4;
+            png.data[o] = r;
+            png.data[o + 1] = g;
+            png.data[o + 2] = b;
+            png.data[o + 3] = 255;
+          }
+        }
+      });
+      const dir = resolve(opts.outDir, slugify(map.name || fileStem("map")), scenario);
+      await ensureDir(dir);
+      const pngPath = resolve(dir, `run-${slugify(seed)}__heatmap.png`);
+      const buffer = PNG.sync.write(png);
+      await fs.writeFile(pngPath, buffer);
+      heatmap = { png: pngPath, rel: relative(process.cwd(), pngPath), maxMean: maxMeanTile, maxInstant };
+    }
   }
 
   const metrics: RunMetrics = {
@@ -348,6 +433,7 @@ async function runSimulation(map: BaseSpecFile, scenario: Scenario, seed: string
     steps,
     metrics,
     heatmap,
+    heatmapData,
     meta: {
       mapFile: map.meta?.["sourcePath"] ?? map.meta?.["mapFile"] ?? "",
       params: map.meta?.["params"],
@@ -384,12 +470,17 @@ export async function runBatch(opts: BatchOptions): Promise<RunOutput[]> {
 /**
  * Run a single simulation task (used by worker threads).
  * Loads map, runs simulation, saves results, returns summary.
+ * Accepts optional pre-loaded map and derived data for caching.
  */
-export async function runSimulationTask(task: SimulationTask): Promise<SimulationResult> {
-  const map = await loadMapFile(task.mapPath);
+export async function runSimulationTask(
+  task: SimulationTask,
+  cachedMap?: BaseSpecFile,
+  cachedDerived?: DerivedMapData
+): Promise<SimulationResult> {
+  const map = cachedMap ?? await loadMapFile(task.mapPath);
   (map.meta ??= {}).sourcePath = task.mapPath;
   
-  const opts: BatchOptions = {
+  const opts: RunSimulationOpts = {
     maps: [task.mapPath],
     outDir: task.outDir,
     agentCount: task.agentCount,
@@ -399,6 +490,9 @@ export async function runSimulationTask(task: SimulationTask): Promise<Simulatio
     tickRate: task.tickRate,
     heatmap: task.heatmap,
     heatmapScale: task.heatmapScale,
+    heatmapFast: task.heatmapFast,
+    heatmapJson: task.heatmapJson,
+    derivedData: cachedDerived,
   };
   
   const run = await runSimulation(map, task.scenario, task.seed, opts);
@@ -438,6 +532,8 @@ export async function runBatchParallel(
           tickRate: opts.tickRate,
           heatmap: opts.heatmap,
           heatmapScale: opts.heatmapScale,
+          heatmapFast: opts.heatmapFast,
+          heatmapJson: opts.heatmapJson,
           outDir: opts.outDir,
         });
       }

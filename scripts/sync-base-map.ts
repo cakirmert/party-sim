@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
-import { buildSpec, DEFAULT_BASE_PARAMS, DEFAULT_GRID, DEFAULT_TEMPLATE } from "./generate-maps";
+import { DEFAULT_BASE_PARAMS, DEFAULT_GRID, DEFAULT_TEMPLATE } from "./generate-maps";
+import { buildSpecRuntime } from "../src/lib/mapgen/runtime";
 import { BaseSpecFile, directCliRun, loadMapFile, writeJson } from "./pipeline-utils";
 
 async function syncBaseMap() {
@@ -16,7 +17,7 @@ async function syncBaseMap() {
     console.warn(`Falling back to default grid ${width}x${height}; could not read ${basePath}: ${String(err)}`);
   }
 
-  const spec = buildSpec({ width, height }, DEFAULT_BASE_PARAMS);
+  const spec = buildSpecRuntime({ width, height }, DEFAULT_BASE_PARAMS);
   const file: BaseSpecFile = {
     width,
     height,
