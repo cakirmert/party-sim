@@ -6,6 +6,7 @@ import { Camera } from "@/lib/engine/Camera";
 import type { BaseSpec, EngineConfig, Tile, TileTag, Vec2 } from "@/lib/engine/Types";
 import { useSimStore } from "@/lib/state/useSimStore";
 import { getAgentColor, PEAK_TIMES } from "./utils";
+import { buildSpecRuntime, DEFAULT_RUNTIME_PARAMS, type VariantParams as RuntimeVariantParams } from "@/lib/mapgen/runtime";
 
 type Props = {
   engineRef: React.MutableRefObject<Engine | null>;
@@ -56,6 +57,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
   const miniVisibleRef = useRef(false);
   const [miniVisible, setMiniVisible] = useState(false);
   const [mapUrl, setMapUrl] = useState<string | null>(null);
+  const resetSeedRef = useRef(0);
 
   const resetCamera = useCallback(() => {
     const canvas = canvasRef.current;
@@ -90,7 +92,11 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
       const urlParam = params.get("map");
       if (urlParam) return urlParam;
       const stored = window.localStorage.getItem("simMapPath");
-      return stored || "/maps/base.json";
+      // avoid pulling sweep-generated API maps by default
+      if (stored && !stored.includes("/api/sweep/map") && !stored.includes("/maps/generated")) {
+        return stored;
+      }
+      return "/maps/base.json";
     })();
     setMapUrl(initialUrl);
     const cfg: EngineConfig = {
@@ -127,8 +133,15 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
           setEngine(eng);
         }
         setBaseSpec(json.spec);
-        const initialAgentCount = useSimStore.getState().agentCount;
+        const store = useSimStore.getState();
+        const initialAgentCount = store.agentCount;
         eng.resetWorld(json.spec, initialAgentCount);
+        const cap = eng.getRoomCapacity();
+        store.setCapacity(cap);
+        if (store.agentCount > cap) {
+          store.setAgentCount(cap);
+          eng.resetWorld(json.spec, cap);
+        }
         resetCamera();
       } catch (e) {
         console.error("Failed to load map", e);
@@ -140,10 +153,48 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
   useEffect(() => { engine?.setPaused(paused); }, [engine, paused]);
 
   useEffect(() => {
-    if (!engine || !baseSpec) return;
-    engine.resetWorld(baseSpec, agentCount);
+    if (!engine) return;
+    const randInt = (min: number, max: number) => Math.floor(min + Math.random() * (max - min + 1));
+    const randPick = <T,>(arr: T[]): T => arr[randInt(0, arr.length - 1)];
+    const seed = `reset-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const store = useSimStore.getState();
+    const mp = store.mapParams;
+    const params: Required<RuntimeVariantParams> = {
+      ...DEFAULT_RUNTIME_PARAMS,
+      corridorWidth: Math.max(2, mp.corridorWidth),
+      crossHeight: Math.max(0, mp.crossHeight),
+      bandHeight: Math.max(6, mp.bandHeight),
+      bandCount: Math.max(0, mp.bandCount),
+      dormRowGap: Math.max(1, Math.min(5, mp.dormRowGap)),
+      seed,
+      bar: {
+        ...DEFAULT_RUNTIME_PARAMS.bar,
+        w: randInt(14, 18),
+        h: randInt(5, 8),
+        side: randPick(["left", "right"]),
+        yOffset: randInt(-1, 1),
+      },
+      gym: {
+        ...DEFAULT_RUNTIME_PARAMS.gym,
+        w: randInt(8, 12),
+        h: randInt(4, 7),
+        side: randPick(["left", "right"]),
+        yOffset: randInt(-1, 1),
+      },
+    };
+    const spec = buildSpecRuntime(engine.cfg.grid, params);
+    setBaseSpec(spec);
+    const storeAfterGen = useSimStore.getState();
+    engine.resetWorld(spec, agentCount);
+    const cap = engine.getRoomCapacity();
+    storeAfterGen.setCapacity(cap);
+    const desired = Math.min(storeAfterGen.agentCount, cap, storeAfterGen.maxAgents);
+    if (desired !== agentCount) {
+      storeAfterGen.setAgentCount(desired);
+      engine.resetWorld(spec, desired);
+    }
     resetCamera();
-  }, [resetNonce, resetCamera, baseSpec]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resetNonce, resetCamera, agentCount, engineRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!engine) return;

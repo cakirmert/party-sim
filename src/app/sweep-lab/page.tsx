@@ -23,18 +23,19 @@ type RankingResponse = {
 };
 
 const DEFAULT_FORM = {
-  count: 12,
+  count: 8,
   runs: 2,
   agents: 80,
   minutes: 720,
   seed: "ui-seed",
-  corridor: "8,10,12",
-  bandHeight: "8,10,12",
-  bandCount: "3",
-  barSize: "14x5,16x6",
-  gymSize: "8x5,10x6",
-  exitWidth: "8,10",
-  outside: "3,4",
+  corridor: "2,3",
+  bandHeight: "12",
+  bandCount: "0,4",
+  rowGap: "2,3",
+  barSize: "14x5,16x6,18x7",
+  gymSize: "8x4,10x5,12x6",
+  exitWidth: "10,12",
+  outside: "4",
   heatmap: true,
   resultsDir: "results",
   heatmapScale: 3,
@@ -96,8 +97,8 @@ export default function SweepLabPage() {
         const res = await fetch(`/api/sweep/progress?expected=${expectedRuns}&results=${encodeURIComponent(form.resultsDir ?? "results")}`, { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
-          const pct = Math.min(99, Math.round((data.progress || 0) * 100));
-          setProgress((prev) => Math.max(prev, pct));
+          const pct = Math.round((data.progress || 0) * 100);
+          setProgress((prev) => Math.max(prev, Math.min(100, pct)));
         }
       } catch {
         // ignore polling errors
@@ -293,6 +294,14 @@ export default function SweepLabPage() {
                   type="text"
                   value={form.exitWidth}
                   onChange={(e) => setForm({ ...form, exitWidth: e.target.value })}
+                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                />
+              </Label>
+              <Label text="Door corridor" hint="Thickness of the corridor row that doors open into (UI Reset uses this).">
+                <input
+                  type="text"
+                  value={form.rowGap ?? ""}
+                  onChange={(e) => setForm({ ...form, rowGap: e.target.value })}
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>

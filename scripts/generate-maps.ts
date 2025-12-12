@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { basename, resolve, relative } from "node:path";
 import { GridMap } from "../src/lib/engine/GridMap";
 import { aStar8 } from "../src/lib/engine/Pathfinder";
-import type { Vec2 } from "../src/lib/engine/Types";
+import type { GridSize, Vec2 } from "../src/lib/engine/Types";
 import type { BaseSpec, RectSpec } from "../src/lib/engine/Types";
+import { buildSpecRuntime, DEFAULT_RUNTIME_PARAMS, type VariantParams as RuntimeVariantParams } from "../src/lib/mapgen/runtime";
 import {
   BaseSpecFile,
   directCliRun,
@@ -18,19 +19,20 @@ import {
 
 type Side = "left" | "right";
 
-type PoiConfig = {
+export type PoiConfig = {
   w: number;
   h: number;
   side: Side;
   yOffset: number;
 };
 
-type VariantParams = {
+export type VariantParams = {
   name?: string;
   corridorWidth?: number;
   crossHeight?: number;
   bandHeight?: number;
   bandCount?: number;
+  dormRowGap?: number;
   bar?: Partial<PoiConfig>;
   gym?: Partial<PoiConfig>;
   outsideHeight?: number;
@@ -38,11 +40,12 @@ type VariantParams = {
   seed?: string;
 };
 
-type RangeConfig = {
+export type RangeConfig = {
   corridorWidth?: number[];
   crossHeight?: number[];
   bandHeight?: number[];
   bandCount?: number[];
+  dormRowGap?: number[];
   barWidth?: number[];
   barHeight?: number[];
   barSide?: Side[];
@@ -66,25 +69,41 @@ type GenerateOptions = {
   gridOverride?: { width: number; height: number };
 };
 
-const DEFAULT_TEMPLATE = "public/maps/base.json";
+export const DEFAULT_TEMPLATE = "public/maps/base.json";
+export const DEFAULT_GRID: GridSize = { width: 120, height: 70 };
 const MIN_ROOM_SIZE = 6; // matches dorm generator expectations
-const MIN_CORRIDOR_WIDTH = 3;
+const MIN_CORRIDOR_WIDTH = 2;
 
-const DEFAULT_RANGE: RangeConfig = {
-  corridorWidth: [6, 8, 10, 12],
-  crossHeight: [3, 4, 5],
-  bandHeight: [8, 10, 12],
-  bandCount: [3],
-  barWidth: [13, 15],
-  barHeight: [4, 5, 6],
+export const DEFAULT_RANGE: RangeConfig = {
+  corridorWidth: [2, 3, 4],
+  crossHeight: [0],
+  bandHeight: [12],
+  bandCount: [0, 4],
+  dormRowGap: [2, 3],
+  barWidth: [14, 16],
+  barHeight: [5, 6],
   barSide: ["right", "left"],
-  barYOffset: [-2, 0, 2],
-  gymWidth: [6, 8, 10],
-  gymHeight: [4, 5, 6],
+  barYOffset: [-1, 1],
+  gymWidth: [8, 10],
+  gymHeight: [4, 5],
   gymSide: ["left", "right"],
-  gymYOffset: [-2, 0, 2],
-  outsideHeight: [3, 4, 5],
-  exitWidth: [8, 10, 12],
+  gymYOffset: [-1, 1],
+  outsideHeight: [4],
+  exitWidth: [10, 12],
+};
+
+export const DEFAULT_BASE_PARAMS: Required<VariantParams> = {
+  corridorWidth: DEFAULT_RUNTIME_PARAMS.corridorWidth,
+  crossHeight: DEFAULT_RUNTIME_PARAMS.crossHeight,
+  bandHeight: DEFAULT_RUNTIME_PARAMS.bandHeight,
+  bandCount: DEFAULT_RUNTIME_PARAMS.bandCount,
+  dormRowGap: DEFAULT_RUNTIME_PARAMS.dormRowGap,
+  bar: DEFAULT_RUNTIME_PARAMS.bar,
+  gym: DEFAULT_RUNTIME_PARAMS.gym,
+  outsideHeight: DEFAULT_RUNTIME_PARAMS.outsideHeight,
+  exitWidth: DEFAULT_RUNTIME_PARAMS.exitWidth,
+  name: "base-template",
+  seed: "homepage",
 };
 
 function clamp(n: number, lo: number, hi: number) {
@@ -126,155 +145,41 @@ function cartesianPick(ranges: unknown[][]): unknown[][] {
   return acc;
 }
 
-function buildSpec(grid: { width: number; height: number }, params: Required<VariantParams>): BaseSpec {
-  const margin = 3;
-  const crossHeight = Math.max(2, params.crossHeight || 3);
-  const outsideHeight = Math.max(2, params.outsideHeight || 3);
-  const bandCount = Math.max(1, params.bandCount || 1);
-  const usableBottom = grid.height - margin - outsideHeight - 1;
-  const usableTop = margin;
-  const usableHeight = usableBottom - usableTop;
+function subtractRect(rect: RectSpec, cut: RectSpec): RectSpec[] {
+  if (!rectsOverlap(rect, cut)) return [rect];
 
-  const minAvailableHeight = bandCount * MIN_ROOM_SIZE + crossHeight * (bandCount - 1);
-  if (usableHeight < minAvailableHeight) {
-    throw new Error(`Grid too short for ${bandCount} bands (need >= ${minAvailableHeight}, have ${usableHeight})`);
+  const rx0 = rect.x;
+  const ry0 = rect.y;
+  const rx1 = rect.x + rect.w;
+  const ry1 = rect.y + rect.h;
+  const cx0 = cut.x;
+  const cy0 = cut.y;
+  const cx1 = cut.x + cut.w;
+  const cy1 = cut.y + cut.h;
+
+  const ix0 = Math.max(rx0, cx0);
+  const iy0 = Math.max(ry0, cy0);
+  const ix1 = Math.min(rx1, cx1);
+  const iy1 = Math.min(ry1, cy1);
+
+  const out: RectSpec[] = [];
+
+  // top band
+  if (iy0 > ry0) out.push({ x: rx0, y: ry0, w: rect.w, h: iy0 - ry0 });
+  // bottom band
+  if (iy1 < ry1) out.push({ x: rx0, y: iy1, w: rect.w, h: ry1 - iy1 });
+
+  const midH = Math.max(0, iy1 - iy0);
+  if (midH > 0) {
+    if (ix0 > rx0) out.push({ x: rx0, y: iy0, w: ix0 - rx0, h: midH });
+    if (ix1 < rx1) out.push({ x: ix1, y: iy0, w: rx1 - ix1, h: midH });
   }
 
-  const corridorWidth = clamp(params.corridorWidth || 8, MIN_CORRIDOR_WIDTH, grid.width - margin * 2 - 8);
-  const centerX = Math.floor(grid.width / 2);
-  const corridorX0 = clamp(centerX - Math.floor(corridorWidth / 2), margin + 1, grid.width - margin - corridorWidth - 1);
-  const corridorRects: RectSpec[] = [
-    { x: corridorX0, y: usableTop, w: corridorWidth, h: Math.max(4, usableHeight) },
-  ];
+  return out.filter(r => r.w >= MIN_ROOM_SIZE && r.h >= MIN_ROOM_SIZE);
+}
 
-  const buffer = Math.max(2, Math.floor(corridorWidth / 3));
-  const leftWidth = Math.max(MIN_ROOM_SIZE, corridorX0 - margin - buffer);
-  const rightWidth = Math.max(MIN_ROOM_SIZE, grid.width - margin - (corridorX0 + corridorWidth) - buffer);
-  const buildableRects: RectSpec[] = [];
-
-  const maxBandHeight = Math.floor((usableHeight - crossHeight * (bandCount - 1)) / bandCount);
-  const bandHeight = clamp(params.bandHeight || maxBandHeight, MIN_ROOM_SIZE, maxBandHeight);
-
-  let yCursor = usableTop;
-  for (let i = 0; i < bandCount; i++) {
-    buildableRects.push({ x: margin, y: yCursor, w: leftWidth, h: bandHeight });
-    buildableRects.push({
-      x: grid.width - margin - rightWidth,
-      y: yCursor,
-      w: rightWidth,
-      h: bandHeight,
-    });
-    yCursor += bandHeight;
-    if (i < bandCount - 1) {
-      corridorRects.push({ x: margin, y: yCursor, w: grid.width - margin * 2, h: crossHeight });
-      yCursor += crossHeight;
-    }
-  }
-
-  const poiZoneHeight = usableHeight;
-  const poiLeftCenter = margin + Math.floor(leftWidth / 2);
-  const poiRightCenter = grid.width - margin - Math.floor(rightWidth / 2);
-  const bar = {
-    w: params.bar?.w ?? 14,
-    h: params.bar?.h ?? 5,
-    side: params.bar?.side ?? "right",
-    yOffset: params.bar?.yOffset ?? 0,
-  };
-  const gym = {
-    w: params.gym?.w ?? 8,
-    h: params.gym?.h ?? 5,
-    side: params.gym?.side ?? "left",
-    yOffset: params.gym?.yOffset ?? 0,
-  };
-
-  const pickPoiRect = (poi: PoiConfig, frac: number): RectSpec => {
-    const centerY = usableTop + Math.floor(poiZoneHeight * frac) + poi.yOffset;
-    const clampedY = clamp(centerY - Math.floor(poi.h / 2), usableTop, usableBottom - poi.h);
-    const targetCenter = poi.side === "left" ? poiLeftCenter : poiRightCenter;
-    const clampedX = clamp(Math.floor(targetCenter - poi.w / 2), margin, grid.width - margin - poi.w);
-    return { x: clampedX, y: clampedY, w: poi.w, h: poi.h };
-  };
-
-  const barRect = pickPoiRect(bar, 0.65);
-  const gymRect = pickPoiRect(gym, 0.35);
-
-  const outsideRect: RectSpec = {
-    x: margin,
-    y: grid.height - outsideHeight - 1,
-    w: grid.width - margin * 2,
-    h: outsideHeight,
-  };
-
-  const exitWidth = clamp(params.exitWidth || 10, 4, grid.width - margin * 2);
-  const exitX0 = clamp(centerX - Math.floor(exitWidth / 2), margin, grid.width - margin - exitWidth);
-  const exitRect: RectSpec = {
-    x: exitX0,
-    y: Math.max(1, outsideRect.y - 3),
-    w: exitWidth,
-    h: Math.max(2, Math.min(3, usableHeight)),
-  };
-  // connector from exit into the building to guarantee an entrance path
-  corridorRects.push({
-    x: exitX0,
-    y: Math.max(1, exitRect.y - Math.max(2, crossHeight)),
-    w: exitWidth,
-    h: Math.max(2, crossHeight),
-  });
-
-  const doorTiles: { x: number; y: number }[] = [];
-  const ensureDoor = (rect: RectSpec) => {
-    const cx = rect.x + Math.floor(rect.w / 2);
-    const cy = rect.y + Math.floor(rect.h / 2);
-    doorTiles.push({ x: cx, y: cy });
-  };
-
-  // Entrance door at exit center
-  ensureDoor(exitRect);
-  // Bar/gym doors facing the vertical corridor
-  const corridorCenterX = corridorX0 + Math.floor(corridorWidth / 2);
-  const makeSideDoor = (rect: RectSpec) => {
-    const cy = rect.y + Math.floor(rect.h / 2);
-    const leftSide = rect.x - 1;
-    const rightSide = rect.x + rect.w;
-    const useLeft = corridorCenterX <= rect.x;
-    const x = useLeft ? leftSide : rightSide;
-    const y = clamp(cy, rect.y, rect.y + rect.h - 1);
-    doorTiles.push({ x, y });
-  };
-  makeSideDoor(barRect);
-  makeSideDoor(gymRect);
-
-  const addCorridorBridge = (from: { x: number; y: number }) => {
-    const cx = corridorCenterX;
-    const x0 = Math.min(from.x, cx);
-    const w = Math.abs(from.x - cx) + 1;
-    corridorRects.push({
-      x: x0,
-      y: clamp(from.y - 1, usableTop, usableBottom),
-      w,
-      h: 3,
-    });
-  };
-
-  doorTiles.forEach(d => addCorridorBridge(d));
-
-  const overlapsPoi = (r: RectSpec) => rectsOverlap(r, barRect) || rectsOverlap(r, gymRect);
-  const filteredBuildables = buildableRects.filter(r => !overlapsPoi(r));
-
-  return {
-    buildableRects: filteredBuildables,
-    corridorRects,
-    barRect,
-    gymRect,
-    outsideRect,
-    exitRect,
-    wallRects: [
-      { x: margin - 1, y: usableTop - 1, w: grid.width - (margin - 1) * 2, h: 1 },
-      { x: margin - 1, y: usableTop - 1, w: 1, h: usableHeight + 2 },
-      { x: grid.width - margin, y: usableTop - 1, w: 1, h: usableHeight + 2 },
-    ],
-    doorTiles,
-  };
+export function buildSpec(grid: { width: number; height: number }, params: Required<VariantParams>): BaseSpec {
+  return buildSpecRuntime(grid, params as Required<RuntimeVariantParams>);
 }
 
 function isSpecConnected(grid: { width: number; height: number }, spec: BaseSpec): boolean {
@@ -342,6 +247,7 @@ function expandRanges(range: RangeConfig): VariantParams[] {
     range.crossHeight ?? DEFAULT_RANGE.crossHeight!,
     range.bandHeight ?? DEFAULT_RANGE.bandHeight!,
     range.bandCount ?? DEFAULT_RANGE.bandCount!,
+    range.dormRowGap ?? DEFAULT_RANGE.dormRowGap!,
     range.barWidth ?? DEFAULT_RANGE.barWidth!,
     range.barHeight ?? DEFAULT_RANGE.barHeight!,
     range.barSide ?? DEFAULT_RANGE.barSide!,
@@ -360,6 +266,7 @@ function expandRanges(range: RangeConfig): VariantParams[] {
       crossHeight,
       bandHeight,
       bandCount,
+      dormRowGap,
       barWidth,
       barHeight,
       barSide,
@@ -370,13 +277,14 @@ function expandRanges(range: RangeConfig): VariantParams[] {
       gymYOffset,
       outsideHeight,
       exitWidth,
-    ] = arr as [number, number, number, number, number, number, Side, number, number, number, Side, number, number, number];
+    ] = arr as [number, number, number, number, number, number, Side, number, number, number, Side, number, number, number, number];
     return {
       name: `variant-${i + 1}`,
       corridorWidth,
       crossHeight,
       bandHeight,
       bandCount,
+      dormRowGap,
       bar: { w: barWidth, h: barHeight, side: barSide, yOffset: barYOffset },
       gym: { w: gymWidth, h: gymHeight, side: gymSide, yOffset: gymYOffset },
       outsideHeight,
@@ -387,7 +295,10 @@ function expandRanges(range: RangeConfig): VariantParams[] {
 
 export async function generateMaps(opts: GenerateOptions): Promise<BaseSpecFile[]> {
   const template = await loadTemplate(opts.templatePath);
-  const grid = opts.gridOverride ?? { width: template.width, height: template.height };
+  const grid = opts.gridOverride ?? {
+    width: template.width ?? DEFAULT_GRID.width,
+    height: template.height ?? DEFAULT_GRID.height,
+  };
 
   let variants: VariantParams[] = [];
   if (opts.explicit && opts.explicit.length) {
@@ -397,7 +308,7 @@ export async function generateMaps(opts: GenerateOptions): Promise<BaseSpecFile[
   }
 
   const combos = variants.length;
-  const maxCount = Math.max(1, opts.count);
+  const maxCount = opts.count <= 0 ? combos : Math.max(1, opts.count);
   let picked: VariantParams[] = variants;
 
   if (variants.length > maxCount) {
@@ -420,6 +331,7 @@ export async function generateMaps(opts: GenerateOptions): Promise<BaseSpecFile[
       crossHeight: variant.crossHeight ?? DEFAULT_RANGE.crossHeight![0],
       bandHeight: variant.bandHeight ?? DEFAULT_RANGE.bandHeight![0],
       bandCount: variant.bandCount ?? DEFAULT_RANGE.bandCount![0],
+      dormRowGap: variant.dormRowGap ?? DEFAULT_RANGE.dormRowGap![0],
       bar: {
         w: variant.bar?.w ?? DEFAULT_RANGE.barWidth![0],
         h: variant.bar?.h ?? DEFAULT_RANGE.barHeight![0],
@@ -487,7 +399,7 @@ async function cli() {
     })()
     : undefined;
 
-  const count = Number(args.count ?? args.max ?? 12);
+  const count = Number(args.count ?? args.max ?? 0);
   const seed = typeof args.seed === "string" ? args.seed : randomUUID();
   const prefix = typeof args.prefix === "string" ? args.prefix : "map";
 
@@ -505,6 +417,8 @@ async function cli() {
   if (bandHeightOverride.length) rangeOverrides.bandHeight = bandHeightOverride;
   const bandCountOverride = parseNumberList(typeof args.bandCount === "string" ? args.bandCount : undefined);
   if (bandCountOverride.length) rangeOverrides.bandCount = bandCountOverride;
+  const dormRowGapOverride = parseNumberList(typeof args.rowGap === "string" ? args.rowGap : undefined);
+  if (dormRowGapOverride.length) rangeOverrides.dormRowGap = dormRowGapOverride.map(n => Math.max(1, Math.min(5, n)));
   const outsideOverride = parseNumberList(typeof args.outside === "string" ? args.outside : undefined);
   if (outsideOverride.length) rangeOverrides.outsideHeight = outsideOverride;
   const exitOverride = parseNumberList(typeof args.exitWidth === "string" ? args.exitWidth : undefined);

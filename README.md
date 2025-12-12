@@ -191,8 +191,15 @@ Scripts
   "dev": "next dev",
   "build": "next build",
   "start": "next start",
-  "typecheck": "tsc -p tsconfig.json --noEmit"
+  "typecheck": "tsc -p tsconfig.json --noEmit",
+  "generate-maps": "tsx scripts/generate-maps.ts",
+  "run-batch": "tsx scripts/run-batch.ts",
+  "analyze-results": "tsx scripts/analyze-results.ts",
+  "sweep-maps": "tsx scripts/sweep-maps.ts",
+  "sync-base-map": "tsx scripts/sync-base-map.ts"
 }
+
+`npm run sync-base-map` regenerates `public/maps/base.json` using the same procedural recipe we sweep, keeping the homepage sim in lockstep with the batch optimizer.
 
 Roadmap (high-level)
 
