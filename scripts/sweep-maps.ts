@@ -45,17 +45,27 @@ async function cli() {
   const scenarioList = parseCsv(typeof args.scenarios === "string" ? args.scenarios : undefined) as ("weekday" | "weekend")[];
   const scenarios = scenarioList.length ? scenarioList : (["weekday", "weekend"] as ("weekday" | "weekend")[]);
 
-  await runBatch({
-    maps: mapFiles,
-    outDir: resultsDir,
-    agentCount: Number(args.agents ?? 80),
-    seeds,
-    simMinutes: Number(args.minutes ?? 1440),
-    scenarios,
-    tickRate: Number(args.tickRate ?? 20),
-    heatmap: args.heatmap !== "false",
-    heatmapScale: Number(args.heatmapScale ?? 3),
-  });
+  // Support CSV agent counts (e.g., "80,100,120")
+  const agentCounts = parseCsv(typeof args.agents === "string" ? args.agents : undefined)
+    .map(s => parseInt(s, 10))
+    .filter(n => !isNaN(n) && n > 0);
+  const agentList = agentCounts.length > 0 ? agentCounts : [80];
+
+  // Run simulations for each agent count
+  for (const agentCount of agentList) {
+    await runBatch({
+      maps: mapFiles,
+      outDir: resultsDir,
+      agentCount,
+      seeds,
+      simMinutes: Number(args.minutes ?? 1440),
+      scenarios,
+      tickRate: Number(args.tickRate ?? 20),
+      heatmap: args.heatmap !== "false",
+      // Default scale 4 to match map preview (min(480/120, 480/70, 4) = 4 for 120x70 grid)
+      heatmapScale: Number(args.heatmapScale ?? 4),
+    });
+  }
 
   await analyzeResults(
     resultsDir,

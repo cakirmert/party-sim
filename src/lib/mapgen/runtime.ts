@@ -331,3 +331,194 @@ export function buildSpecRuntime(
     doorTiles,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Parameter Ranges for Sweep
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type PoiSizeConfig = { w: number; h: number };
+
+export type ParameterRanges = {
+  corridorWidth: number[];
+  crossHeight: number[];
+  bandHeight: number[];
+  bandCount: number[];
+  dormRowGap: number[];
+  barSizes: PoiSizeConfig[];
+  barSides: Side[];
+  barYOffsets: number[];
+  gymSizes: PoiSizeConfig[];
+  gymSides: Side[];
+  gymYOffsets: number[];
+  outsideHeight: number[];
+  exitWidth: number[];
+};
+
+/**
+ * Default parameter ranges matching the homepage random generation.
+ * Bar/Gym sides are linked: bar on one side, gym on the opposite.
+ */
+export const DEFAULT_PARAMETER_RANGES: ParameterRanges = {
+  corridorWidth: [2, 3, 4],
+  crossHeight: [0],
+  bandHeight: [12],
+  bandCount: [0, 4],
+  dormRowGap: [2, 3],
+  barSizes: [
+    { w: 14, h: 5 },
+    { w: 16, h: 6 },
+    { w: 18, h: 7 },
+  ],
+  barSides: ["left", "right"],
+  barYOffsets: [-1, 0, 1],
+  gymSizes: [
+    { w: 8, h: 4 },
+    { w: 10, h: 5 },
+    { w: 12, h: 6 },
+  ],
+  gymSides: ["left", "right"], // Will be opposite of bar
+  gymYOffsets: [-1, 0, 1],
+  outsideHeight: [4],
+  exitWidth: [10, 12],
+};
+
+/**
+ * Calculate the total number of unique map variations from parameter ranges.
+ * Bar and gym sides are linked (opposite), so we don't multiply by gymSides.
+ */
+export function calculateVariationCount(ranges: ParameterRanges): number {
+  return (
+    ranges.corridorWidth.length *
+    ranges.crossHeight.length *
+    ranges.bandHeight.length *
+    ranges.bandCount.length *
+    ranges.dormRowGap.length *
+    ranges.barSizes.length *
+    ranges.barSides.length * // gym side is opposite, so only count bar sides
+    ranges.barYOffsets.length *
+    ranges.gymSizes.length *
+    ranges.gymYOffsets.length *
+    ranges.outsideHeight.length *
+    ranges.exitWidth.length
+  );
+}
+
+/**
+ * Expand parameter ranges into an array of all possible VariantParams combinations.
+ * Bar and gym are placed on opposite sides.
+ */
+export function expandParameterRanges(ranges: ParameterRanges, seed: string = "expand"): Required<VariantParams>[] {
+  const variants: Required<VariantParams>[] = [];
+  let idx = 0;
+
+  for (const corridorWidth of ranges.corridorWidth) {
+    for (const crossHeight of ranges.crossHeight) {
+      for (const bandHeight of ranges.bandHeight) {
+        for (const bandCount of ranges.bandCount) {
+          for (const dormRowGap of ranges.dormRowGap) {
+            for (const barSize of ranges.barSizes) {
+              for (const barSide of ranges.barSides) {
+                for (const barYOffset of ranges.barYOffsets) {
+                  for (const gymSize of ranges.gymSizes) {
+                    // Gym side is always opposite of bar
+                    const gymSide: Side = barSide === "left" ? "right" : "left";
+                    for (const gymYOffset of ranges.gymYOffsets) {
+                      for (const outsideHeight of ranges.outsideHeight) {
+                        for (const exitWidth of ranges.exitWidth) {
+                          idx++;
+                          variants.push({
+                            corridorWidth,
+                            crossHeight,
+                            bandHeight,
+                            bandCount,
+                            dormRowGap,
+                            bar: { w: barSize.w, h: barSize.h, side: barSide, yOffset: barYOffset },
+                            gym: { w: gymSize.w, h: gymSize.h, side: gymSide, yOffset: gymYOffset },
+                            outsideHeight,
+                            exitWidth,
+                            seed: `${seed}-${idx}`,
+                          });
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return variants;
+}
+
+/**
+ * Parse CSV string of WxH size pairs into PoiSizeConfig array.
+ * e.g., "14x5,16x6,18x7" -> [{w:14,h:5}, {w:16,h:6}, {w:18,h:7}]
+ */
+export function parseSizeList(raw: string | undefined): PoiSizeConfig[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((pair) => pair.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const [w, h] = pair.toLowerCase().split("x").map(Number);
+      if (Number.isFinite(w) && Number.isFinite(h)) return { w, h };
+      return null;
+    })
+    .filter((v): v is PoiSizeConfig => Boolean(v));
+}
+
+/**
+ * Parse CSV of numbers into number array.
+ * e.g., "2,3,4" -> [2, 3, 4]
+ */
+export function parseNumberList(raw: string | undefined): number[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n));
+}
+
+/**
+ * Build ParameterRanges from form input strings, falling back to defaults.
+ */
+export function buildRangesFromForm(form: {
+  corridor?: string;
+  bandHeight?: string;
+  bandCount?: string;
+  rowGap?: string;
+  barSize?: string;
+  gymSize?: string;
+  exitWidth?: string;
+  outside?: string;
+}): ParameterRanges {
+  const corridorWidth = parseNumberList(form.corridor);
+  const bandHeight = parseNumberList(form.bandHeight);
+  const bandCount = parseNumberList(form.bandCount);
+  const dormRowGap = parseNumberList(form.rowGap);
+  const barSizes = parseSizeList(form.barSize);
+  const gymSizes = parseSizeList(form.gymSize);
+  const exitWidth = parseNumberList(form.exitWidth);
+  const outsideHeight = parseNumberList(form.outside);
+
+  return {
+    corridorWidth: corridorWidth.length ? corridorWidth : DEFAULT_PARAMETER_RANGES.corridorWidth,
+    crossHeight: DEFAULT_PARAMETER_RANGES.crossHeight,
+    bandHeight: bandHeight.length ? bandHeight : DEFAULT_PARAMETER_RANGES.bandHeight,
+    bandCount: bandCount.length ? bandCount : DEFAULT_PARAMETER_RANGES.bandCount,
+    dormRowGap: dormRowGap.length ? dormRowGap : DEFAULT_PARAMETER_RANGES.dormRowGap,
+    barSizes: barSizes.length ? barSizes : DEFAULT_PARAMETER_RANGES.barSizes,
+    barSides: DEFAULT_PARAMETER_RANGES.barSides,
+    barYOffsets: DEFAULT_PARAMETER_RANGES.barYOffsets,
+    gymSizes: gymSizes.length ? gymSizes : DEFAULT_PARAMETER_RANGES.gymSizes,
+    gymSides: DEFAULT_PARAMETER_RANGES.gymSides,
+    gymYOffsets: DEFAULT_PARAMETER_RANGES.gymYOffsets,
+    outsideHeight: outsideHeight.length ? outsideHeight : DEFAULT_PARAMETER_RANGES.outsideHeight,
+    exitWidth: exitWidth.length ? exitWidth : DEFAULT_PARAMETER_RANGES.exitWidth,
+  };
+}
