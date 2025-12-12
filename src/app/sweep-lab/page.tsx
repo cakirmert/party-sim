@@ -277,9 +277,9 @@ export default function SweepLabPage() {
             
             {/* Variation count display */}
             <div className="mb-3 p-3 rounded-lg bg-slate-800/50 border border-white/10">
-              <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center justify-between text-sm flex-wrap gap-2">
                 <div>
-                  <span className="text-slate-400">Possible variations: </span>
+                  <span className="text-slate-400">Possible layouts: </span>
                   <span className="font-mono text-emerald-400">{variationInfo.total.toLocaleString()}</span>
                 </div>
                 <div>
@@ -287,12 +287,16 @@ export default function SweepLabPage() {
                   <span className="font-mono text-blue-400">{variationInfo.mapsToGenerate}</span>
                 </div>
                 <div>
+                  <span className="text-slate-400">Agent variants: </span>
+                  <span className="font-mono text-purple-400">{variationInfo.agentVariants}</span>
+                </div>
+                <div>
                   <span className="text-slate-400">Total simulations: </span>
-                  <span className="font-mono text-amber-400">{variationInfo.totalSimulations}</span>
+                  <span className="font-mono text-amber-400">{variationInfo.totalSimulations.toLocaleString()}</span>
                 </div>
               </div>
               <p className="text-[11px] text-slate-500 mt-1">
-                Each map runs 1× weekday + 1× weekend = 2 scenarios × {form.runs} run(s) = {2 * form.runs} simulations per map
+                {variationInfo.mapsToGenerate} maps × 2 scenarios × {form.runs} run(s) × {variationInfo.agentVariants} agent count(s) = {variationInfo.totalSimulations.toLocaleString()} simulations
               </p>
             </div>
 
