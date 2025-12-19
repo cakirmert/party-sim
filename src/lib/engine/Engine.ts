@@ -29,6 +29,7 @@ export interface OutRecord {
   reason: "Study" | "Work" | "Shop";
   untilMinute: number;
   exitPos: Vec2;
+  roomId?: string;
 }
 
 export type timeOfDay = "morning" | "afternoon" | "night";
@@ -885,6 +886,7 @@ export class Engine {
         if (due === 0 || (now >= rec.untilMinute && (now - rec.untilMinute) < this.minutesPerTick + 0.001)) {
           // Respawn
           const a = new Agent({ ...rec.exitPos });
+          a.roomId = rec.roomId;
           this.setAgentState(a, "Returning");
           a.lastMapVersion = this.map.getVersion();
           this.agents.set(a.id, a);
@@ -1036,7 +1038,7 @@ export class Engine {
     const dur = this.rng.int(60, 360); // minutes
     const untilMinute = (this.tod.minute + dur) % 1440;
     // Track
-    this.outList.push({ id: a.id, reason, untilMinute, exitPos });
+    this.outList.push({ id: a.id, reason, untilMinute, exitPos, roomId: a.roomId });
     if (!this.cfg.headless || this.cfg.emitEvents) {
       this.events.emit({ type: "AGENT_DESPAWNED", id: a.id });
     }
