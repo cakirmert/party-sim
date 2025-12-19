@@ -4,7 +4,15 @@ import { GridMap } from "../src/lib/engine/GridMap";
 import { aStar8 } from "../src/lib/engine/Pathfinder";
 import type { GridSize, Vec2 } from "../src/lib/engine/Types";
 import type { BaseSpec, RectSpec } from "../src/lib/engine/Types";
-import { buildSpecRuntime, DEFAULT_RUNTIME_PARAMS, type VariantParams as RuntimeVariantParams } from "../src/lib/mapgen/runtime";
+import {
+  buildSpecRuntime,
+  DEFAULT_RUNTIME_PARAMS,
+  DEFAULT_PARAMETER_RANGES,
+  expandParameterRanges,
+  buildRangesFromForm,
+  type VariantParams as RuntimeVariantParams,
+  type ParameterRanges,
+} from "../src/lib/mapgen/runtime";
 import {
   BaseSpecFile,
   directCliRun,
@@ -40,28 +48,13 @@ export type VariantParams = {
   seed?: string;
 };
 
-export type RangeConfig = {
-  corridorWidth?: number[];
-  crossHeight?: number[];
-  bandHeight?: number[];
-  bandCount?: number[];
-  dormRowGap?: number[];
-  barWidth?: number[];
-  barHeight?: number[];
-  barSide?: Side[];
-  barYOffset?: number[];
-  gymWidth?: number[];
-  gymHeight?: number[];
-  gymSide?: Side[];
-  gymYOffset?: number[];
-  outsideHeight?: number[];
-  exitWidth?: number[];
-};
+// Re-export ParameterRanges for backward compatibility
+export type RangeConfig = ParameterRanges;
 
 type GenerateOptions = {
   templatePath: string;
   outDir: string;
-  ranges?: RangeConfig;
+  ranges?: ParameterRanges;
   explicit?: VariantParams[];
   count: number;
   seed: string;
@@ -74,23 +67,8 @@ export const DEFAULT_GRID: GridSize = { width: 120, height: 70 };
 const MIN_ROOM_SIZE = 6; // matches dorm generator expectations
 const MIN_CORRIDOR_WIDTH = 2;
 
-export const DEFAULT_RANGE: RangeConfig = {
-  corridorWidth: [2, 3, 4],
-  crossHeight: [0],
-  bandHeight: [12],
-  bandCount: [0, 4],
-  dormRowGap: [2, 3],
-  barWidth: [14, 16],
-  barHeight: [5, 6],
-  barSide: ["right", "left"],
-  barYOffset: [-1, 1],
-  gymWidth: [8, 10],
-  gymHeight: [4, 5],
-  gymSide: ["left", "right"],
-  gymYOffset: [-1, 1],
-  outsideHeight: [4],
-  exitWidth: [10, 12],
-};
+// Use centralized ranges from runtime.ts
+export const DEFAULT_RANGE = DEFAULT_PARAMETER_RANGES;
 
 export const DEFAULT_BASE_PARAMS: Required<VariantParams> = {
   corridorWidth: DEFAULT_RUNTIME_PARAMS.corridorWidth,
@@ -129,22 +107,6 @@ function seedFromString(seed: string) {
   return h >>> 0;
 }
 
-function choose<T>(rng: () => number, arr: T[]): T {
-  return arr[Math.floor(rng() * arr.length)];
-}
-
-function cartesianPick(ranges: unknown[][]): unknown[][] {
-  let acc: unknown[][] = [[]];
-  for (const arr of ranges) {
-    const next: unknown[][] = [];
-    for (const partial of acc) {
-      for (const v of arr) next.push([...partial, v]);
-    }
-    acc = next;
-  }
-  return acc;
-}
-
 function subtractRect(rect: RectSpec, cut: RectSpec): RectSpec[] {
   if (!rectsOverlap(rect, cut)) return [rect];
 
@@ -176,10 +138,6 @@ function subtractRect(rect: RectSpec, cut: RectSpec): RectSpec[] {
   }
 
   return out.filter(r => r.w >= MIN_ROOM_SIZE && r.h >= MIN_ROOM_SIZE);
-}
-
-export function buildSpec(grid: { width: number; height: number }, params: Required<VariantParams>): BaseSpec {
-  return buildSpecRuntime(grid, params as Required<RuntimeVariantParams>);
 }
 
 function isSpecConnected(grid: { width: number; height: number }, spec: BaseSpec): boolean {
@@ -231,66 +189,14 @@ function parseSizeList(raw: string | undefined): Array<{ w: number; h: number }>
     .filter((v): v is { w: number; h: number } => Boolean(v));
 }
 
-function normalizeRange(r: RangeConfig | undefined, overrides: Partial<RangeConfig>): RangeConfig {
+function normalizeRange(r: ParameterRanges | undefined, overrides: Partial<ParameterRanges>): ParameterRanges {
   const base = r ?? DEFAULT_RANGE;
-  const merged: RangeConfig = { ...base };
+  const merged: ParameterRanges = { ...base };
   for (const [key, value] of Object.entries(overrides)) {
     if (!value) continue;
     (merged as Record<string, unknown>)[key] = value;
   }
   return merged;
-}
-
-function expandRanges(range: RangeConfig): VariantParams[] {
-  const combos = cartesianPick([
-    range.corridorWidth ?? DEFAULT_RANGE.corridorWidth!,
-    range.crossHeight ?? DEFAULT_RANGE.crossHeight!,
-    range.bandHeight ?? DEFAULT_RANGE.bandHeight!,
-    range.bandCount ?? DEFAULT_RANGE.bandCount!,
-    range.dormRowGap ?? DEFAULT_RANGE.dormRowGap!,
-    range.barWidth ?? DEFAULT_RANGE.barWidth!,
-    range.barHeight ?? DEFAULT_RANGE.barHeight!,
-    range.barSide ?? DEFAULT_RANGE.barSide!,
-    range.barYOffset ?? DEFAULT_RANGE.barYOffset!,
-    range.gymWidth ?? DEFAULT_RANGE.gymWidth!,
-    range.gymHeight ?? DEFAULT_RANGE.gymHeight!,
-    range.gymSide ?? DEFAULT_RANGE.gymSide!,
-    range.gymYOffset ?? DEFAULT_RANGE.gymYOffset!,
-    range.outsideHeight ?? DEFAULT_RANGE.outsideHeight!,
-    range.exitWidth ?? DEFAULT_RANGE.exitWidth!,
-  ]);
-
-  return combos.map((arr, i) => {
-    const [
-      corridorWidth,
-      crossHeight,
-      bandHeight,
-      bandCount,
-      dormRowGap,
-      barWidth,
-      barHeight,
-      barSide,
-      barYOffset,
-      gymWidth,
-      gymHeight,
-      gymSide,
-      gymYOffset,
-      outsideHeight,
-      exitWidth,
-    ] = arr as [number, number, number, number, number, number, Side, number, number, number, Side, number, number, number, number];
-    return {
-      name: `variant-${i + 1}`,
-      corridorWidth,
-      crossHeight,
-      bandHeight,
-      bandCount,
-      dormRowGap,
-      bar: { w: barWidth, h: barHeight, side: barSide, yOffset: barYOffset },
-      gym: { w: gymWidth, h: gymHeight, side: gymSide, yOffset: gymYOffset },
-      outsideHeight,
-      exitWidth,
-    };
-  });
 }
 
 export async function generateMaps(opts: GenerateOptions): Promise<BaseSpecFile[]> {
@@ -300,21 +206,26 @@ export async function generateMaps(opts: GenerateOptions): Promise<BaseSpecFile[
     height: template.height ?? DEFAULT_GRID.height,
   };
 
-  let variants: VariantParams[] = [];
+  // Use the centralized expandParameterRanges from runtime.ts
+  let variants: RuntimeVariantParams[] = [];
   if (opts.explicit && opts.explicit.length) {
-    variants = opts.explicit;
+    variants = opts.explicit.map((v, i) => ({
+      ...DEFAULT_RUNTIME_PARAMS,
+      ...v,
+      seed: v.seed ?? `${opts.seed}-${i}`,
+    }));
   } else {
-    variants = expandRanges(opts.ranges ?? DEFAULT_RANGE);
+    variants = expandParameterRanges(opts.ranges ?? DEFAULT_RANGE, opts.seed);
   }
 
   const combos = variants.length;
   const maxCount = opts.count <= 0 ? combos : Math.max(1, opts.count);
-  let picked: VariantParams[] = variants;
+  let picked = variants;
 
   if (variants.length > maxCount) {
     const rng = mulberry32(seedFromString(opts.seed || randomUUID()));
     const pool = [...variants];
-    const sampled: VariantParams[] = [];
+    const sampled: RuntimeVariantParams[] = [];
     while (sampled.length < maxCount && pool.length) {
       const idx = Math.floor(rng() * pool.length);
       sampled.push(pool.splice(idx, 1)[0]);
@@ -325,39 +236,31 @@ export async function generateMaps(opts: GenerateOptions): Promise<BaseSpecFile[
   await ensureDir(opts.outDir);
 
   const out: BaseSpecFile[] = [];
-  for (const variant of picked) {
-    const params: Required<VariantParams> = {
-      corridorWidth: variant.corridorWidth ?? DEFAULT_RANGE.corridorWidth![0],
-      crossHeight: variant.crossHeight ?? DEFAULT_RANGE.crossHeight![0],
-      bandHeight: variant.bandHeight ?? DEFAULT_RANGE.bandHeight![0],
-      bandCount: variant.bandCount ?? DEFAULT_RANGE.bandCount![0],
-      dormRowGap: variant.dormRowGap ?? DEFAULT_RANGE.dormRowGap![0],
-      bar: {
-        w: variant.bar?.w ?? DEFAULT_RANGE.barWidth![0],
-        h: variant.bar?.h ?? DEFAULT_RANGE.barHeight![0],
-        side: variant.bar?.side ?? DEFAULT_RANGE.barSide![0] as Side,
-        yOffset: variant.bar?.yOffset ?? 0,
-      },
-      gym: {
-        w: variant.gym?.w ?? DEFAULT_RANGE.gymWidth![0],
-        h: variant.gym?.h ?? DEFAULT_RANGE.gymHeight![0],
-        side: variant.gym?.side ?? DEFAULT_RANGE.gymSide![0] as Side,
-        yOffset: variant.gym?.yOffset ?? 0,
-      },
-      outsideHeight: variant.outsideHeight ?? DEFAULT_RANGE.outsideHeight![0],
-      exitWidth: variant.exitWidth ?? DEFAULT_RANGE.exitWidth![0],
-      name: variant.name ?? "",
-      seed: variant.seed ?? opts.seed,
+  for (let i = 0; i < picked.length; i++) {
+    const variant = picked[i];
+    const params: Required<RuntimeVariantParams> = {
+      corridorWidth: variant.corridorWidth ?? DEFAULT_RUNTIME_PARAMS.corridorWidth,
+      crossHeight: variant.crossHeight ?? DEFAULT_RUNTIME_PARAMS.crossHeight,
+      bandHeight: variant.bandHeight ?? DEFAULT_RUNTIME_PARAMS.bandHeight,
+      bandCount: variant.bandCount ?? DEFAULT_RUNTIME_PARAMS.bandCount,
+      dormRowGap: variant.dormRowGap ?? DEFAULT_RUNTIME_PARAMS.dormRowGap,
+      bar: variant.bar ?? DEFAULT_RUNTIME_PARAMS.bar,
+      gym: variant.gym ?? DEFAULT_RUNTIME_PARAMS.gym,
+      outsideHeight: variant.outsideHeight ?? DEFAULT_RUNTIME_PARAMS.outsideHeight,
+      exitWidth: variant.exitWidth ?? DEFAULT_RUNTIME_PARAMS.exitWidth,
+      seed: variant.seed ?? `${opts.seed}-${i}`,
     };
 
-    const spec = buildSpec(grid, params);
+    // Use buildSpecRuntime directly - same as homepage
+    const spec = buildSpecRuntime(grid, params);
     if (!isSpecConnected(grid, spec)) {
       // skip invalid layouts that block POIs from exit
       // eslint-disable-next-line no-console
       console.warn("Skipping disconnected map", params);
       continue;
     }
-    const label = variant.name || `${opts.prefix}-${params.bandCount}b-${params.corridorWidth}cw-${params.bar?.w}bw`;
+    const hash = seedFromString(JSON.stringify(params));
+    const label = `variant-${hash}`;
     const fileName = `${slugify(label)}.json`;
     const outPath = resolve(opts.outDir, fileName);
     const mapFile: BaseSpecFile = {
@@ -403,52 +306,31 @@ async function cli() {
   const seed = typeof args.seed === "string" ? args.seed : randomUUID();
   const prefix = typeof args.prefix === "string" ? args.prefix : "map";
 
-  let ranges: RangeConfig | undefined;
+  let ranges: ParameterRanges | undefined;
   if (args.ranges && typeof args.ranges === "string") {
     ranges = await loadRanges(resolve(args.ranges));
   }
 
-  const rangeOverrides: Partial<RangeConfig> = {};
-  const corridorOverride = parseNumberList(typeof args.corridor === "string" ? args.corridor : undefined);
-  if (corridorOverride.length) rangeOverrides.corridorWidth = corridorOverride;
-  const crossOverride = parseNumberList(typeof args.cross === "string" ? args.cross : undefined);
-  if (crossOverride.length) rangeOverrides.crossHeight = crossOverride;
-  const bandHeightOverride = parseNumberList(typeof args.bandHeight === "string" ? args.bandHeight : undefined);
-  if (bandHeightOverride.length) rangeOverrides.bandHeight = bandHeightOverride;
-  const bandCountOverride = parseNumberList(typeof args.bandCount === "string" ? args.bandCount : undefined);
-  if (bandCountOverride.length) rangeOverrides.bandCount = bandCountOverride;
-  const dormRowGapOverride = parseNumberList(typeof args.rowGap === "string" ? args.rowGap : undefined);
-  if (dormRowGapOverride.length) rangeOverrides.dormRowGap = dormRowGapOverride.map(n => Math.max(1, Math.min(5, n)));
-  const outsideOverride = parseNumberList(typeof args.outside === "string" ? args.outside : undefined);
-  if (outsideOverride.length) rangeOverrides.outsideHeight = outsideOverride;
-  const exitOverride = parseNumberList(typeof args.exitWidth === "string" ? args.exitWidth : undefined);
-  if (exitOverride.length) rangeOverrides.exitWidth = exitOverride;
+  // Build ranges from CLI arguments using the centralized builder
+  const formRanges = buildRangesFromForm({
+    corridor: typeof args.corridor === "string" ? args.corridor : undefined,
+    bandHeight: typeof args.bandHeight === "string" ? args.bandHeight : undefined,
+    bandCount: typeof args.bandCount === "string" ? args.bandCount : undefined,
+    rowGap: typeof args.rowGap === "string" ? args.rowGap : undefined,
+    barSize: typeof args.barSize === "string" ? args.barSize : undefined,
+    gymSize: typeof args.gymSize === "string" ? args.gymSize : undefined,
+    exitWidth: typeof args.exitWidth === "string" ? args.exitWidth : undefined,
+    outside: typeof args.outside === "string" ? args.outside : undefined,
+  });
 
-  const barSizes = parseSizeList(typeof args.barSize === "string" ? args.barSize : undefined);
-  if (barSizes.length) {
-    rangeOverrides.barWidth = barSizes.map(s => s.w);
-    rangeOverrides.barHeight = barSizes.map(s => s.h);
-  }
-  const gymSizes = parseSizeList(typeof args.gymSize === "string" ? args.gymSize : undefined);
-  if (gymSizes.length) {
-    rangeOverrides.gymWidth = gymSizes.map(s => s.w);
-    rangeOverrides.gymHeight = gymSizes.map(s => s.h);
-  }
-  const barSides = parseCsv(typeof args.barSide === "string" ? args.barSide : undefined) as Side[];
-  if (barSides.length) rangeOverrides.barSide = barSides;
-  const gymSides = parseCsv(typeof args.gymSide === "string" ? args.gymSide : undefined) as Side[];
-  if (gymSides.length) rangeOverrides.gymSide = gymSides;
-  const barYOffset = parseNumberList(typeof args.barYOffset === "string" ? args.barYOffset : undefined);
-  if (barYOffset.length) rangeOverrides.barYOffset = barYOffset;
-  const gymYOffset = parseNumberList(typeof args.gymYOffset === "string" ? args.gymYOffset : undefined);
-  if (gymYOffset.length) rangeOverrides.gymYOffset = gymYOffset;
+  // Merge loaded ranges with form overrides
+  const mergedRange = normalizeRange(ranges, formRanges);
 
   let explicit: VariantParams[] | undefined;
   if (args.params && typeof args.params === "string") {
     explicit = await loadParams(resolve(args.params));
   }
 
-  const mergedRange = normalizeRange(ranges, rangeOverrides);
   await generateMaps({
     templatePath,
     outDir,
@@ -461,14 +343,14 @@ async function cli() {
   });
 }
 
-async function loadRanges(path: string): Promise<RangeConfig> {
+async function loadRanges(path: string): Promise<ParameterRanges> {
   const file = await import("node:fs/promises");
   const raw = await file.readFile(path, "utf8");
   const json = JSON.parse(raw);
   if (Array.isArray(json)) {
     throw new Error("Ranges file should be an object, not an array. Use --params for explicit variants.");
   }
-  return json as RangeConfig;
+  return json as ParameterRanges;
 }
 
 async function loadParams(path: string): Promise<VariantParams[]> {

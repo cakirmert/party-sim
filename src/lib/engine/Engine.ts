@@ -38,7 +38,7 @@ export class Engine {
   map: GridMap;
   readonly events = new EventBus();
   readonly clock: Clock;
-  readonly rng: RNG;
+  private rng: RNG;
   readonly tod: TimeOfDay;
 
   private agents: Map<string, Agent> = new Map();
@@ -111,6 +111,16 @@ export class Engine {
   // ——— Public getters ———
   getTick() { return this.tickCount; }
   getAgents(): Agent[] { return [...this.agents.values()]; }
+  /** Iterate agents without allocating an array (for batch runs). */
+  forEachAgent(cb: (a: Agent) => void): void {
+    for (const a of this.agents.values()) cb(a);
+  }
+  /** Get agent count without allocating (for batch runs). */
+  getAgentCount(): number { return this.agents.size; }
+  /** Reseed the RNG (for reusing Engine across runs). */
+  setSeed(seed: string): void {
+    this.rng = new RNG(seed);
+  }
   getOutList(): OutRecord[] { return [...this.outList]; }
   getPerfStats() {
     return {
@@ -126,7 +136,9 @@ export class Engine {
     for (let i = 0; i < steps; i++) {
       this.fixedStep(1 / this.cfg.baseTickRate);
       this.tickCount++;
-      this.events.emit({ type: "TICK", tick: this.tickCount });
+      if (!this.cfg.headless || this.cfg.emitEvents) {
+        this.events.emit({ type: "TICK", tick: this.tickCount });
+      }
     }
     return steps;
   }
@@ -180,7 +192,9 @@ export class Engine {
       a.recentTiles = [{ ...a.pos }];
       a.lastMapVersion = mapVersion;
       this.agents.set(a.id, a);
-      this.events.emit({ type: "AGENT_ADDED", id: a.id });
+      if (!this.cfg.headless || this.cfg.emitEvents) {
+        this.events.emit({ type: "AGENT_ADDED", id: a.id });
+      }
     }
 
     this.barBoundingBox = {
@@ -215,7 +229,9 @@ export class Engine {
         this.setAgentState(a, "Idle");
         a.lastMapVersion = this.map.getVersion();
         this.agents.set(a.id, a);
-        this.events.emit({ type: "AGENT_ADDED", id: a.id });
+        if (!this.cfg.headless || this.cfg.emitEvents) {
+          this.events.emit({ type: "AGENT_ADDED", id: a.id });
+        }
         break;
       }
       case "MOVE_AGENT_TO": {
@@ -286,7 +302,9 @@ export class Engine {
     for (let i = 0; i < steps; i++) {
       this.fixedStep(1 / this.cfg.baseTickRate);
       this.tickCount++;
-      this.events.emit({ type: "TICK", tick: this.tickCount });
+      if (!this.cfg.headless || this.cfg.emitEvents) {
+        this.events.emit({ type: "TICK", tick: this.tickCount });
+      }
     }
     return steps;
   }
@@ -369,10 +387,10 @@ export class Engine {
     const timeOfDay = this.getTimeOfDay();
     const dayOfWeek = DAY_NAMES[this.tod.dayOfWeek];
     const currentProps = agentProps[dayOfWeek][timeOfDay];
-    const gymCoeff = currentProps.gym * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
-    const barCoeff = currentProps.bar * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
-    const outsideCoeff = currentProps.outside * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
-    const roomCoeff = currentProps.room * Math.floor(Math.random() * (8 - 5 + 1)) + 5;
+    const gymCoeff = currentProps.gym * (this.rng.int(5, 8));
+    const barCoeff = currentProps.bar * (this.rng.int(5, 8));
+    const roomCoeff = currentProps.room * (this.rng.int(5, 8));
+    const outsideCoeff = currentProps.outside * (this.rng.int(5, 8));
 
     const center = this.isMax(gymCoeff, [barCoeff, outsideCoeff, roomCoeff]) ? "GYM"
       : this.isMax(barCoeff, [gymCoeff, outsideCoeff, roomCoeff]) ? "BAR"
@@ -851,7 +869,9 @@ export class Engine {
       this.tod.dayOfWeek = (this.tod.dayOfWeek + 1) % 7;
       if (prevDayOfWeek === 6) {
         this.weeksElapsed++;
-        this.events.emit({ type: "WEEK_COMPLETED", weeksElapsed: this.weeksElapsed });
+        if (!this.cfg.headless || this.cfg.emitEvents) {
+          this.events.emit({ type: "WEEK_COMPLETED", weeksElapsed: this.weeksElapsed });
+        }
       }
     }
 
@@ -868,7 +888,9 @@ export class Engine {
           this.setAgentState(a, "Returning");
           a.lastMapVersion = this.map.getVersion();
           this.agents.set(a.id, a);
-          this.events.emit({ type: "AGENT_RESPAWNED", id: a.id });
+          if (!this.cfg.headless || this.cfg.emitEvents) {
+            this.events.emit({ type: "AGENT_RESPAWNED", id: a.id });
+          }
           this.outList.splice(i, 1);
         }
       }
@@ -981,17 +1003,27 @@ export class Engine {
       a.moveProgress = remaining;
     }
 
-    while (this.densityTimer >= 1) {
-      this.densityTimer -= 1;
-      this.rebuildDensityGrid();
+    // Skip density computation in headless mode unless explicitly requested
+    if (!this.cfg.headless || this.cfg.computeDensity) {
+      while (this.densityTimer >= 1) {
+        this.densityTimer -= 1;
+        this.rebuildDensityGrid();
+      }
+    } else {
+      this.densityTimer = 0; // Reset timer to prevent buildup
     }
 
-    while (this.perfTimer >= 1) {
-      this.perfTimer -= 1;
-      this.lastTicksPerSecond = this.ticksThisSecond;
-      this.ticksThisSecond = 0;
-      this.lastDensityRecomputes = this.densityRecomputesThisSecond;
-      this.densityRecomputesThisSecond = 0;
+    // Skip perf stats in headless mode unless explicitly requested
+    if (!this.cfg.headless || this.cfg.computePerfStats) {
+      while (this.perfTimer >= 1) {
+        this.perfTimer -= 1;
+        this.lastTicksPerSecond = this.ticksThisSecond;
+        this.ticksThisSecond = 0;
+        this.lastDensityRecomputes = this.densityRecomputesThisSecond;
+        this.densityRecomputesThisSecond = 0;
+      }
+    } else {
+      this.perfTimer = 0; // Reset timer to prevent buildup
     }
   }
 
@@ -1005,7 +1037,9 @@ export class Engine {
     const untilMinute = (this.tod.minute + dur) % 1440;
     // Track
     this.outList.push({ id: a.id, reason, untilMinute, exitPos });
-    this.events.emit({ type: "AGENT_DESPAWNED", id: a.id });
+    if (!this.cfg.headless || this.cfg.emitEvents) {
+      this.events.emit({ type: "AGENT_DESPAWNED", id: a.id });
+    }
   }
 
   // ——— Dorm generator ———

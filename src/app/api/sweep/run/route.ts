@@ -1,22 +1,24 @@
 import { NextResponse } from "next/server";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { cpus } from "node:os";
 
 const execAsync = promisify(exec);
+
+// Fixed constants for sweep (not user-configurable)
+const FIXED_OUTSIDE_HEIGHT = 4;
+const FIXED_HEATMAP_SCALE = 4;
+const DEFAULT_WORKERS = Math.max(1, cpus().length - 1);
 
 type SweepRequest = {
   count?: number;
   runs?: number;
-  agents?: number;
+  agents?: string; // CSV of agent counts
   minutes?: number;
   seed?: string;
-  corridor?: string;
-  bandHeight?: string;
-  bandCount?: string;
   barSize?: string;
   gymSize?: string;
   exitWidth?: string;
-  outside?: string;
   rowGap?: string;
   resultsDir?: string;
   heatmap?: boolean;
@@ -24,6 +26,9 @@ type SweepRequest = {
   wWait?: number;
   wCluster?: number;
   wExit?: number;
+  // Parallel execution options
+  parallel?: boolean;
+  workers?: number;
 };
 
 export async function POST(req: Request) {
@@ -38,20 +43,24 @@ export async function POST(req: Request) {
     "run",
     "sweep-maps",
     "--",
-    `--count ${body.count ?? 8}`,
-    `--runs ${body.runs ?? 2}`,
-    `--agents ${body.agents ?? 80}`,
-    `--minutes ${body.minutes ?? 720}`,
+    `--count ${body.count ?? 32}`,
+    `--runs ${body.runs ?? 1}`,
+    `--agents ${body.agents ?? "80"}`,
+    `--minutes ${body.minutes ?? 960}`,
+    `--outside ${FIXED_OUTSIDE_HEIGHT}`,
+    `--heatmapScale ${FIXED_HEATMAP_SCALE}`,
   ];
+  
+  // Parallel execution (default: enabled)
+  const parallel = body.parallel !== false;
+  const workers = body.workers ?? DEFAULT_WORKERS;
+  args.push(`--parallel ${parallel}`);
+  args.push(`--workers ${workers}`);
 
   if (body.seed) args.push(`--seed ${body.seed}`);
-  if (body.corridor) args.push(`--corridor ${body.corridor}`);
-  if (body.bandHeight) args.push(`--bandHeight ${body.bandHeight}`);
-  if (body.bandCount) args.push(`--bandCount ${body.bandCount}`);
   if (body.barSize) args.push(`--barSize ${body.barSize}`);
   if (body.gymSize) args.push(`--gymSize ${body.gymSize}`);
   if (body.exitWidth) args.push(`--exitWidth ${body.exitWidth}`);
-  if (body.outside) args.push(`--outside ${body.outside}`);
   if (body.rowGap) args.push(`--rowGap ${body.rowGap}`);
   if (body.resultsDir) args.push(`--results ${body.resultsDir}`);
   if (typeof body.wFlow === "number") args.push(`--w-flow ${body.wFlow}`);

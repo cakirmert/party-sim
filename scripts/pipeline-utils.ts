@@ -1,6 +1,9 @@
-import { promises as fs } from "node:fs";
-import { dirname, extname, basename, resolve } from "node:path";
+import { promises as fs, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, extname, basename, resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
+import { cpus } from "node:os";
+import { buildSync } from "esbuild";
 import type { BaseSpec } from "../src/lib/engine/Types";
 
 export type BaseSpecFile = {
@@ -16,9 +19,10 @@ export async function readJson<T>(file: string): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
-export async function writeJson(file: string, data: unknown): Promise<void> {
+export async function writeJson(file: string, data: unknown, compact = false): Promise<void> {
   await ensureDir(dirname(file));
-  await fs.writeFile(file, JSON.stringify(data, null, 2), "utf8");
+  const json = compact ? JSON.stringify(data) : JSON.stringify(data, null, 2);
+  await fs.writeFile(file, json, "utf8");
 }
 
 export async function ensureDir(dir: string): Promise<void> {
@@ -96,4 +100,153 @@ export function directCliRun(importMetaUrl?: string): boolean {
     return require.main === module;
   }
   return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Worker Pool for Parallel Execution
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type WorkerTask<T> = {
+  id: number;
+  data: T;
+};
+
+export type WorkerResult<R> = {
+  id: number;
+  result?: R;
+  error?: string;
+};
+
+export type ProgressCallback = (completed: number, total: number, taskId: number) => void;
+
+/**
+ * Get default worker count (CPU cores - 1, minimum 1)
+ */
+export function getDefaultWorkerCount(): number {
+  return Math.max(1, cpus().length - 1);
+}
+
+// Cache for compiled worker scripts
+const compiledWorkerCache = new Map<string, string>();
+
+/**
+ * Compile TypeScript worker to JavaScript using esbuild.
+ * Results are cached for reuse. Output is placed in project directory for module resolution.
+ */
+function compileWorker(workerPath: string): string {
+  const cached = compiledWorkerCache.get(workerPath);
+  if (cached && existsSync(cached)) return cached;
+  
+  // Place compiled worker in project's .compiled directory so node_modules can resolve
+  const projectRoot = dirname(dirname(workerPath));
+  const outDir = join(projectRoot, ".compiled");
+  const outPath = join(outDir, "sim-worker.mjs");
+  
+  if (!existsSync(outDir)) {
+    mkdirSync(outDir, { recursive: true });
+  }
+  
+  buildSync({
+    entryPoints: [workerPath],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node20",
+    outfile: outPath,
+    sourcemap: "inline",
+    // Externalize node_modules to avoid bundling issues
+    packages: "external",
+  });
+  
+  compiledWorkerCache.set(workerPath, outPath);
+  return outPath;
+}
+
+/**
+ * Run tasks in parallel using worker threads.
+ * Compiles TypeScript to JavaScript using esbuild for worker thread compatibility.
+ * Worker threads provide lower overhead than child processes.
+ * @param tasks - Array of task data to process
+ * @param workerPath - Absolute path to worker script (TypeScript)
+ * @param maxWorkers - Maximum concurrent workers (default: CPU cores - 1)
+ * @param onProgress - Optional callback for progress updates
+ * @returns Array of results in same order as input tasks
+ */
+export async function runParallelTasks<T, R>(
+  tasks: T[],
+  workerPath: string,
+  maxWorkers: number = getDefaultWorkerCount(),
+  onProgress?: ProgressCallback
+): Promise<WorkerResult<R>[]> {
+  if (tasks.length === 0) return [];
+  
+  // Compile TypeScript worker to JavaScript
+  const compiledWorkerPath = compileWorker(workerPath);
+  
+  const workerCount = Math.min(maxWorkers, tasks.length);
+  const results: WorkerResult<R>[] = new Array(tasks.length);
+  let nextTaskIndex = 0;
+  let completedCount = 0;
+  
+  return new Promise((resolveAll, rejectAll) => {
+    const workers: Worker[] = [];
+    let hasError = false;
+    
+    const assignTask = (worker: Worker, workerIndex: number) => {
+      if (nextTaskIndex >= tasks.length || hasError) {
+        worker.terminate();
+        return;
+      }
+      
+      const taskIndex = nextTaskIndex++;
+      const task: WorkerTask<T> = { id: taskIndex, data: tasks[taskIndex] };
+      worker.postMessage(task);
+    };
+    
+    const onWorkerMessage = (worker: Worker, workerIndex: number) => (msg: WorkerResult<R>) => {
+      results[msg.id] = msg;
+      completedCount++;
+      
+      if (onProgress) {
+        onProgress(completedCount, tasks.length, msg.id);
+      }
+      
+      if (completedCount === tasks.length) {
+        // All done - terminate remaining workers
+        workers.forEach(w => w.terminate());
+        resolveAll(results);
+      } else {
+        // Assign next task to this worker
+        assignTask(worker, workerIndex);
+      }
+    };
+    
+    const onWorkerError = (workerIndex: number) => (err: Error) => {
+      if (hasError) return;
+      hasError = true;
+      // eslint-disable-next-line no-console
+      console.error(`Worker ${workerIndex} error:`, err);
+      workers.forEach(w => w.terminate());
+      rejectAll(err);
+    };
+    
+    // Spawn worker threads using compiled JavaScript
+    for (let i = 0; i < workerCount; i++) {
+      const worker = new Worker(compiledWorkerPath);
+      workers.push(worker);
+      
+      worker.on("message", onWorkerMessage(worker, i));
+      worker.on("error", onWorkerError(i));
+      worker.on("exit", (code) => {
+        // Workers exit with code 1 when terminated, which is expected
+        if (code !== 0 && code !== 1 && !hasError) {
+          // eslint-disable-next-line no-console
+          console.warn(`Worker ${i} exited with code ${code}`);
+        }
+      });
+      
+      // Assign initial task
+      assignTask(worker, i);
+    }
+  });
 }

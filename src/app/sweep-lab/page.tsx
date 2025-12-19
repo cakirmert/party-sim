@@ -4,6 +4,11 @@ import Link from "next/link";
 import React, { useEffect, useMemo, useState } from "react";
 import { GridMap } from "@/lib/engine/GridMap";
 import type { BaseSpec, MapJSON, Tile, RectSpec } from "@/lib/engine/Types";
+import {
+  buildRangesFromForm,
+  calculateVariationCount,
+  DEFAULT_PARAMETER_RANGES,
+} from "@/lib/mapgen/runtime";
 
 type MapRow = {
   map: string;
@@ -22,33 +27,49 @@ type RankingResponse = {
   maps: MapRow[];
 };
 
+type ProgressResponse = {
+  progress: number;
+  completed: number;
+  total: number;
+  currentMap?: string;
+  startedAt?: number;
+  elapsed?: number;
+  eta?: number;
+};
+
+// Fixed constants (not user-configurable)
+const FIXED_OUTSIDE_HEIGHT = 4;
+const FIXED_HEATMAP_SCALE = 4;
+
+// Get default worker count (will be overridden by API on server)
+const DEFAULT_WORKERS = typeof navigator !== "undefined" ? Math.max(1, (navigator.hardwareConcurrency || 4) - 1) : 4;
+
 const DEFAULT_FORM = {
-  count: 8,
-  runs: 2,
-  agents: 80,
-  minutes: 720,
+  count: 32,
+  runs: 1,
+  agents: "80,100,120",
+  minutes: 960, // 16 hours: 6am to 10pm
   seed: "ui-seed",
-  corridor: "2,3",
-  bandHeight: "12",
-  bandCount: "0,4",
   rowGap: "2,3",
   barSize: "14x5,16x6,18x7",
   gymSize: "8x4,10x5,12x6",
   exitWidth: "10,12",
-  outside: "4",
   heatmap: true,
   resultsDir: "results",
-  heatmapScale: 3,
   wFlow: 0.4,
   wWait: 0.3,
   wCluster: 0.2,
   wExit: 0.1,
+  // Parallel execution
+  parallel: true,
+  workers: DEFAULT_WORKERS,
 };
 
 export default function SweepLabPage() {
   const [form, setForm] = useState(DEFAULT_FORM);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [progressInfo, setProgressInfo] = useState<ProgressResponse | null>(null);
   const [runLog, setRunLog] = useState<string>("");
   const [ranking, setRanking] = useState<RankingResponse | null>(null);
   const [loadingRank, setLoadingRank] = useState(false);
@@ -58,6 +79,27 @@ export default function SweepLabPage() {
   const [showMap, setShowMap] = useState(true);
   const [mapPreviews, setMapPreviews] = useState<Record<string, string>>({});
   const [showInfo, setShowInfo] = useState(false);
+
+  // Parse agents CSV to array of numbers
+  const agentCounts = useMemo(() => {
+    return form.agents.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
+  }, [form.agents]);
+
+  // Calculate variation count from current form parameters
+  const variationInfo = useMemo(() => {
+    const ranges = buildRangesFromForm({
+      rowGap: form.rowGap,
+      barSize: form.barSize,
+      gymSize: form.gymSize,
+      exitWidth: form.exitWidth,
+    });
+    const total = calculateVariationCount(ranges);
+    const mapsToGenerate = Math.min(total, form.count);
+    // 2 scenarios (weekday + weekend) * runs per map * agent counts
+    const agentVariants = agentCounts.length || 1;
+    const totalSimulations = mapsToGenerate * 2 * Math.max(1, form.runs) * agentVariants;
+    return { total, mapsToGenerate, totalSimulations, ranges, agentVariants };
+  }, [form, agentCounts]);
 
   const weightsText = useMemo(() => {
     if (!ranking?.weights) return "";
@@ -84,21 +126,50 @@ export default function SweepLabPage() {
     fetchRanking().catch(() => {});
   }, []);
 
+  const formatTime = (ms: number) => {
+    const seconds = Math.floor(ms / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (minutes < 60) return `${minutes}m ${secs}s`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+  };
+
   const handleRun = async () => {
     setRunning(true);
-    setProgress(5);
-    setRunLog("Running sweep from UI...\n");
-    const progressTimer = setInterval(() => {
-      setProgress((p) => Math.min(p + 2, 98));
-    }, 1200);
-    const expectedRuns = Math.max(1, Number(form.count) * Number(form.runs || 1) * 2);
+    setProgress(0);
+    setProgressInfo(null);
+    setRunLog("Starting sweep...\n");
+    
+    const totalExpected = variationInfo.totalSimulations;
+    
     const pollTimer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/sweep/progress?expected=${expectedRuns}&results=${encodeURIComponent(form.resultsDir ?? "results")}`, { cache: "no-store" });
+        const res = await fetch(
+          `/api/sweep/progress?expected=${totalExpected}&results=${encodeURIComponent(form.resultsDir ?? "results")}`,
+          { cache: "no-store" }
+        );
         if (res.ok) {
-          const data = await res.json();
+          const data = await res.json() as ProgressResponse;
+          setProgressInfo(data);
           const pct = Math.round((data.progress || 0) * 100);
-          setProgress((prev) => Math.max(prev, Math.min(100, pct)));
+          setProgress(Math.min(99, pct)); // Cap at 99% until complete
+          
+          // Update log with progress
+          if (data.currentMap) {
+            setRunLog(prev => {
+              const lines = prev.split("\n");
+              const lastLine = lines[lines.length - 1];
+              if (lastLine.startsWith("Processing:")) {
+                lines[lines.length - 1] = `Processing: ${data.currentMap} (${data.completed}/${data.total})`;
+              } else {
+                lines.push(`Processing: ${data.currentMap} (${data.completed}/${data.total})`);
+              }
+              return lines.join("\n");
+            });
+          }
         }
       } catch {
         // ignore polling errors
@@ -114,16 +185,19 @@ export default function SweepLabPage() {
       if (!res.ok || !json.ok) {
         throw new Error(json?.message || "Sweep failed");
       }
-      setRunLog((prev) => `${prev}${json.stdout || ""}${json.stderr || ""}`);
+      setRunLog((prev) => `${prev}\n✓ Sweep completed successfully!`);
       setProgress(100);
+      setProgressInfo(null);
       await fetchRanking();
     } catch (err) {
-      setRunLog((prev) => `${prev}\n${String(err)}`);
+      setRunLog((prev) => `${prev}\n✗ Error: ${String(err)}`);
     } finally {
-      clearInterval(progressTimer);
       clearInterval(pollTimer);
       setRunning(false);
-      setTimeout(() => setProgress(0), 800);
+      setTimeout(() => {
+        setProgress(0);
+        setProgressInfo(null);
+      }, 2000);
     }
   };
 
@@ -206,45 +280,86 @@ export default function SweepLabPage() {
                 Reset defaults
               </button>
             </div>
-            {running && (
-              <div className="mb-3">
-                <div className="flex items-center justify-between text-xs text-slate-300">
-                  <span>Running… (progress is approximate for long sweeps)</span>
-                  <span>{progress.toFixed(0)}%</span>
+            
+            {/* Variation count display */}
+            <div className="mb-3 p-3 rounded-lg bg-slate-800/50 border border-white/10">
+              <div className="flex items-center justify-between text-sm flex-wrap gap-2">
+                <div>
+                  <span className="text-slate-400">Possible layouts: </span>
+                  <span className="font-mono text-emerald-400">{variationInfo.total.toLocaleString()}</span>
                 </div>
-                <div className="h-2 rounded bg-white/10 overflow-hidden">
+                <div>
+                  <span className="text-slate-400">Maps to generate: </span>
+                  <span className="font-mono text-blue-400">{variationInfo.mapsToGenerate}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400">Agent variants: </span>
+                  <span className="font-mono text-purple-400">{variationInfo.agentVariants}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400">Total simulations: </span>
+                  <span className="font-mono text-amber-400">{variationInfo.totalSimulations.toLocaleString()}</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                {variationInfo.mapsToGenerate} maps × 2 scenarios × {form.runs} run(s) × {variationInfo.agentVariants} agent count(s) = {variationInfo.totalSimulations.toLocaleString()} simulations
+              </p>
+            </div>
+
+            {running && (
+              <div className="mb-3 p-3 rounded-lg bg-slate-800/80 border border-emerald-500/30">
+                <div className="flex items-center justify-between text-sm text-slate-200 mb-2">
+                  <span className="font-medium">
+                    {progressInfo?.currentMap ? `Processing: ${progressInfo.currentMap}` : "Starting..."}
+                  </span>
+                  <span className="font-mono">{progress.toFixed(0)}%</span>
+                </div>
+                <div className="h-3 rounded bg-white/10 overflow-hidden mb-2">
                   <div
-                    className="h-full bg-emerald-500 transition-all"
+                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>
+                    {progressInfo?.completed ?? 0} / {progressInfo?.total ?? variationInfo.totalSimulations} completed
+                  </span>
+                  {progressInfo?.eta !== undefined && progressInfo.eta > 0 && (
+                    <span>ETA: ~{formatTime(progressInfo.eta)}</span>
+                  )}
+                  {progressInfo?.elapsed !== undefined && progressInfo.elapsed > 0 && (
+                    <span>Elapsed: {formatTime(progressInfo.elapsed)}</span>
+                  )}
+                </div>
               </div>
             )}
+            
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <Label text="Map count" hint="How many map variants to generate for this run.">
+              <Label text="Max maps" hint={`Limit maps to generate (max ${variationInfo.total} possible).`}>
                 <input
                   type="number"
                   min={1}
+                  max={variationInfo.total}
                   value={form.count}
-                  onChange={(e) => setForm({ ...form, count: Number(e.target.value) })}
+                  onChange={(e) => setForm({ ...form, count: Math.min(Number(e.target.value), variationInfo.total) })}
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Runs per map" hint="How many seeds to simulate per map to smooth randomness.">
+              <Label text="Runs per scenario" hint="How many seeds to simulate per scenario to smooth randomness.">
                 <input
                   type="number"
                   min={1}
+                  max={5}
                   value={form.runs}
                   onChange={(e) => setForm({ ...form, runs: Number(e.target.value) })}
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Agents" hint="Target agent population in the sim.">
+              <Label text="Agents" hint="CSV of agent counts to test (e.g., 80,100,120). Each count creates a separate simulation.">
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
                   value={form.agents}
-                  onChange={(e) => setForm({ ...form, agents: Number(e.target.value) })}
+                  onChange={(e) => setForm({ ...form, agents: e.target.value })}
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
@@ -265,31 +380,7 @@ export default function SweepLabPage() {
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Corridor widths" hint="CSV of hallway widths; affects flow capacity.">
-                <input
-                  type="text"
-                  value={form.corridor}
-                  onChange={(e) => setForm({ ...form, corridor: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Band heights" hint="CSV of dorm band heights; controls room rows.">
-                <input
-                  type="text"
-                  value={form.bandHeight}
-                  onChange={(e) => setForm({ ...form, bandHeight: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Band count" hint="How many stacked dorm bands to place around the spine.">
-                <input
-                  type="text"
-                  value={form.bandCount}
-                  onChange={(e) => setForm({ ...form, bandCount: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Exit width" hint="Exit corridor width; influences evacuation speed.">
+              <Label text="Exit width" hint="CSV of exit corridor widths (e.g., 10,12); influences evacuation speed.">
                 <input
                   type="text"
                   value={form.exitWidth}
@@ -297,7 +388,7 @@ export default function SweepLabPage() {
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Door corridor" hint="Thickness of the corridor row that doors open into (UI Reset uses this).">
+              <Label text="Door corridor gap" hint="CSV of corridor thicknesses between dorm rows (e.g., 2,3).">
                 <input
                   type="text"
                   value={form.rowGap ?? ""}
@@ -305,15 +396,7 @@ export default function SweepLabPage() {
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Outside height" hint="Depth of outside/road buffer.">
-                <input
-                  type="text"
-                  value={form.outside}
-                  onChange={(e) => setForm({ ...form, outside: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Bar sizes" hint="CSV of WxH for bar area (e.g., 14x5,16x6).">
+              <Label text="Bar sizes" hint="CSV of WxH for bar area (e.g., 14x5,16x6,18x7).">
                 <input
                   type="text"
                   value={form.barSize}
@@ -321,22 +404,12 @@ export default function SweepLabPage() {
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Gym sizes" hint="CSV of WxH for gym area (e.g., 8x5,10x6).">
+              <Label text="Gym sizes" hint="CSV of WxH for gym area (e.g., 8x4,10x5,12x6).">
                 <input
                   type="text"
                   value={form.gymSize}
                   onChange={(e) => setForm({ ...form, gymSize: e.target.value })}
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Heatmap scale" hint="Pixel scale for saved heatmaps (higher = sharper/larger PNG).">
-                <input
-                  type="number"
-                  min={1}
-                  max={8}
-                  value={form.heatmapScale}
-                  onChange={(e) => setForm({ ...form, heatmapScale: Number(e.target.value) })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
                 />
               </Label>
               <Label text="Weights: flow / wait" hint="Ranking weight for path length and stuck/queue penalties.">
@@ -379,15 +452,55 @@ export default function SweepLabPage() {
                   />
                 </div>
               </Label>
-              <label className="flex items-center gap-2 col-span-2">
+              <Label text="Parallel workers" hint="Number of CPU cores to use for parallel simulation. More workers = faster but uses more RAM (~100MB each).">
                 <input
-                  type="checkbox"
-                  checked={form.heatmap}
-                  onChange={(e) => setForm({ ...form, heatmap: e.target.checked })}
+                  type="number"
+                  min={1}
+                  max={32}
+                  value={form.workers}
+                  onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
+                  className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
                 />
-                <span className="text-slate-300">Render heatmaps</span>
-              </label>
+              </Label>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.parallel}
+                    onChange={(e) => setForm({ ...form, parallel: e.target.checked })}
+                  />
+                  <span className="text-slate-300">Parallel execution</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.heatmap}
+                    onChange={(e) => setForm({ ...form, heatmap: e.target.checked })}
+                  />
+                  <span className="text-slate-300">Render heatmaps</span>
+                </label>
+              </div>
             </div>
+            
+            {/* Performance estimate */}
+            <div className="mt-3 p-2 rounded bg-slate-800/50 border border-white/10 text-xs text-slate-400">
+              <span className="font-medium text-slate-300">Estimated time: </span>
+              {form.parallel ? (
+                <span>
+                  ~{Math.ceil(variationInfo.totalSimulations * 3 / form.workers / 60)} minutes with {form.workers} workers
+                  {form.workers < DEFAULT_WORKERS && <span className="text-amber-400"> (increase workers for faster execution)</span>}
+                </span>
+              ) : (
+                <span className="text-amber-400">
+                  ~{Math.ceil(variationInfo.totalSimulations * 3 / 60)} minutes (sequential - enable parallel for {Math.ceil(variationInfo.totalSimulations * 3 / DEFAULT_WORKERS / 60)}min)
+                </span>
+              )}
+              <span className="block mt-1">
+                RAM usage: ~{form.parallel ? form.workers * 100 : 100}MB
+                {variationInfo.totalSimulations > 500 && <span className="text-amber-400"> • Large sweep - consider running overnight</span>}
+              </span>
+            </div>
+            
             <div className="mt-3 flex gap-2">
               <button
                 onClick={handleRun}
@@ -518,8 +631,8 @@ export default function SweepLabPage() {
                       <pre className="mt-1 bg-slate-900/70 border border-white/10 rounded p-2 overflow-auto max-h-40">{JSON.stringify(m.params, null, 2)}</pre>
                     </details>
                   )}
-                  {(showHeatmaps || showMap) && m.heatmap && (
-                    <div className="mt-1 rounded overflow-hidden border border-white/10 bg-black/30 relative">
+                  {(showHeatmaps || showMap) && (
+                    <div className="mt-1 rounded overflow-hidden border border-white/10 bg-black/30 relative min-h-[120px]">
                       {showMap && mapPreviews[m.map] && (
                         <img
                           src={mapPreviews[m.map]}
@@ -528,14 +641,20 @@ export default function SweepLabPage() {
                           style={{ imageRendering: "pixelated" as React.CSSProperties["imageRendering"], opacity: mapOpacity }}
                         />
                       )}
-                      {showHeatmaps && (
+                      {showHeatmaps && m.heatmap ? (
                         <img
                           src={m.heatmap}
                           alt={`${m.map} heatmap`}
                           className="w-full object-contain mix-blend-screen absolute inset-0"
                           style={{ opacity: heatmapOpacity }}
                         />
-                      )}
+                      ) : showHeatmaps && !m.heatmap ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-slate-800/50">
+                          <span className="text-xs text-slate-500 px-2 py-1 rounded bg-slate-900/50">
+                            Heatmap not available
+                          </span>
+                        </div>
+                      ) : null}
                       <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-transparent to-black/20" />
                       {m.heatmapPath && (
                         <a
@@ -626,7 +745,8 @@ async function renderMapPreview(url: string): Promise<string | undefined> {
   }
 
   const { width, height, tiles } = map;
-  const scale = Math.min(480 / width, 480 / height, 4);
+  // Use scale 4-6 for better detail, matching heatmap scale
+  const scale = Math.max(4, Math.min(600 / width, 600 / height, 6));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.floor(width * scale));
   canvas.height = Math.max(1, Math.floor(height * scale));

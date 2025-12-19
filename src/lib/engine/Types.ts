@@ -64,6 +64,14 @@ export interface EngineConfig {
   seed: string;
   baseTickRate: number;  // logical ticks/sec @ 1x
   pixelsPerTile: number; // for renderer
+  /** Skip event emission, density grid, perf stats for batch runs */
+  headless?: boolean;
+  /** Override: emit events even in headless mode */
+  emitEvents?: boolean;
+  /** Override: compute density grid even in headless mode */
+  computeDensity?: boolean;
+  /** Override: compute perf stats even in headless mode */
+  computePerfStats?: boolean;
 }
 
 export type SimSpeed = 0.25 | 0.5 | 1 | 2 | 4 | 8 | 16 | 32 | 64;
