@@ -58,8 +58,8 @@ async function cli() {
     .filter(n => !isNaN(n) && n > 0);
   const agentList = agentCounts.length > 0 ? agentCounts : [80];
 
-  // Default to 960 minutes (16 hours: 6am to 10pm) for realistic day simulation
-  const simMinutes = Number(args.minutes ?? 960);
+  // Default to 1260 minutes (21 hours: 6am to 3am) to capture bar closing but end early
+  const simMinutes = Number(args.minutes ?? 1260);
 
   // Top-K filtering: only write results for top K maps (reduces file I/O)
   const topK = Number(args.topK ?? args["top-k"]) || undefined;

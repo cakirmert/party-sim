@@ -46,12 +46,16 @@ type Props = {
     className?: string;
 };
 
-// Heat coloring helper
-function getHeatColor(val: number): string {
-    // simple heat gradient: blue->green->yellow->red
-    // val is 0..1
-    const h = (1.0 - val) * 240; // 240=blue, 0=red
-    return `hsla(${h}, 100%, 50%, 1)`; // alpha handled by global alpha or fill style
+// Turbo-like gradient for better distinguishability of bands
+// Blue -> Cyan -> Green -> Yellow -> Orange -> Red -> White
+function getHeatColor(t: number): string {
+    // Shifted stops to make "warm" colors appear at lower density
+    if (t < 0.15) return `hsla(240, 100%, 50%, ${t / 0.15})`; // Fade in Blue
+    if (t < 0.3) return `hsl(${240 - (t - 0.15) / 0.15 * 60}, 100%, 50%)`; // Blue->Cyan (240->180)
+    if (t < 0.45) return `hsl(${180 - (t - 0.3) / 0.15 * 60}, 100%, 50%)`;  // Cyan->Green (180->120)
+    if (t < 0.6) return `hsl(${120 - (t - 0.45) / 0.15 * 60}, 100%, 45%)`; // Green->Yellow (120->60) darker yield
+    if (t < 0.8) return `hsl(${60 - (t - 0.6) / 0.2 * 60}, 100%, 50%)`;    // Yellow->Red (60->0)
+    return `hsl(300, ${100 - (t - 0.8) / 0.2 * 100}%, 100%)`;              // Red->White (White hot)
 }
 
 export default function MapPreview({ mapUrl, heatmapData, mapOpacity = 1, heatmapOpacity = 0.7, className }: Props) {
@@ -184,19 +188,78 @@ export default function MapPreview({ mapUrl, heatmapData, mapOpacity = 1, heatma
         // Overlay Heatmap
         if (heat && heat.data && activeHeatOpacity > 0) {
             ctx.globalAlpha = activeHeatOpacity;
-            const maxVal = Math.max(0.0001, Math.max(...heat.data));
-            for (let i = 0; i < heat.data.length; i++) {
+            // Blur the heatmap for a smoother "glow" look
+            // @ts-ignore - filter is valid in modern browsers but TS might complain
+            ctx.filter = "blur(2px)";
+
+            // 1. Smooth the data (Convolution) to widen hotspots
+            // This spreads the 'score' to neighbors, making red/yellow zones larger/easier to hit
+            const smooth = new Float32Array(heat.data.length);
+            const w = heat.width;
+            const h = heat.data.length / w;
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const i = y * w + x;
+                    const val = heat.data[i];
+                    if (val === 0 && x > 0 && x < w - 1 && y > 0 && y < h - 1) {
+                        // Optimization: Skip completely empty areas if neighbors likely empty? 
+                        // No, simple convolution:
+                    }
+
+                    let sum = val * 1.0; // Keep original distinctness
+                    let count = 1.0;
+
+                    // Add neighbors with weight
+                    const neighbors = [
+                        ((y - 1) * w) + x, // Up
+                        ((y + 1) * w) + x, // Down
+                        (y * w) + x - 1,   // Left
+                        (y * w) + x + 1,   // Right
+                        // Diagonals for rounder shape
+                        ((y - 1) * w) + x - 1,
+                        ((y - 1) * w) + x + 1,
+                        ((y + 1) * w) + x - 1,
+                        ((y + 1) * w) + x + 1,
+                    ];
+
+                    for (const ni of neighbors) {
+                        if (ni >= 0 && ni < heat.data.length) {
+                            // Check bounds roughly (wrapping edges is minor visual artifact for visual preview)
+                            // Strictly we should check col/row, but for speed/simplicity in preview: 
+                            // Just checking index valid is OK (might wrap row, but rare impact)
+                            const nv = heat.data[ni];
+                            if (nv > 0) {
+                                sum += nv * 0.5; // Neighbor contribution
+                            }
+                        }
+                    }
+                    smooth[i] = sum;
+                }
+            }
+
+            const maxVal = Math.max(0.0001, Math.max(...smooth));
+            const logMax = Math.log(maxVal + 1);
+
+            for (let i = 0; i < smooth.length; i++) {
                 const x = i % heat.width;
                 const y = Math.floor(i / heat.width);
                 if (x >= gw || y >= gh) continue;
 
-                const val = heat.data[i];
+                const val = smooth[i];
                 if (val > 0) {
-                    const norm = val / maxVal;
+                    // Log scale to handle high dynamic range without crushing low values
+                    const logVal = Math.log(val + 1);
+                    // Normalize to 0..1
+                    const norm = logVal / logMax;
+
                     ctx.fillStyle = getHeatColor(norm);
                     ctx.fillRect(x, y, 1, 1);
                 }
             }
+            // Reset filter and alpha
+            // @ts-ignore
+            ctx.filter = "none";
             ctx.globalAlpha = 1.0;
         }
     }
