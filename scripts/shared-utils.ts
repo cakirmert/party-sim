@@ -13,8 +13,6 @@ export interface BaseSpec {
     wallRects?: RectSpec[];
     doorTiles?: { x: number; y: number }[];
     dormRowGap?: number;
-    // Allow other props for flexibility if needed, but strictly include above for compat
-    [key: string]: unknown;
 }
 
 export type BaseSpecFile = {
@@ -111,7 +109,7 @@ export function directCliRun(importMetaUrl?: string): boolean {
         // Just use a simpler check or import it.
         // We'll skip strict check or assume it's passed correctly.
         // Re-implementing correctly:
-        return process.argv[1] && importMetaUrl.endsWith(basename(process.argv[1]));
+        return Boolean(process.argv[1] && importMetaUrl.endsWith(basename(process.argv[1])));
     }
     if (typeof require !== "undefined" && typeof module !== "undefined") {
         return require.main === module;

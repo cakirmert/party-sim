@@ -297,320 +297,324 @@ export default function SweepLabPage() {
           </div>
         )}
 
-        {/* Methodology Explanation - Full Width Top */}
-        <section className="bg-blue-900/10 border border-blue-500/20 rounded-xl p-4 text-sm text-slate-300">
-          <h3 className="text-blue-400 font-semibold mb-1">Scoring Methodology</h3>
-          <p className="opacity-80 mb-1">
-            Results are graded on a <strong>Bell Curve (0-100)</strong> relative to the current batch.
-          </p>
-          <p className="text-xs opacity-60">
-            Average = 50. Each component (Capacity, Util, etc.) is graded 0-100, then averaged by weight.
-          </p>
-        </section>
 
-        <div className="grid md:grid-cols-5 gap-6">
-          <section className="md:col-span-2 bg-white/5 border border-white/10 rounded-xl p-4 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold">Run a sweep</h2>
-              <button
-                className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
-                onClick={() => setForm(DEFAULT_FORM)}
-                disabled={running}
-              >
-                Reset defaults
-              </button>
-            </div>
 
-            {/* Variation count display */}
-            <div className="mb-3 p-3 rounded-lg bg-slate-800/50 border border-white/10">
-              <div className="flex items-center justify-between text-sm flex-wrap gap-2">
-                <div>
-                  <span className="text-slate-400">Possible layouts: </span>
-                  <span className="font-mono text-emerald-400">{variationInfo.total.toLocaleString()}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400">Maps to generate: </span>
-                  <span className="font-mono text-blue-400">{variationInfo.mapsToGenerate}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400">Agent variants: </span>
-                  <span className="font-mono text-purple-400">{variationInfo.agentVariants}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400">Total simulations: </span>
-                  <span className="font-mono text-amber-400">{variationInfo.totalSimulations.toLocaleString()}</span>
-                </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          <div className="md:col-span-1 flex flex-col gap-6">
+            <section className="bg-white/5 border border-white/10 rounded-xl p-4 shadow-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold">Run a sweep</h2>
+                <button
+                  className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                  onClick={() => setForm(DEFAULT_FORM)}
+                  disabled={running}
+                >
+                  Reset defaults
+                </button>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                {variationInfo.mapsToGenerate} maps × 2 scenarios × {form.runs} run(s) × {variationInfo.agentVariants} agent count(s) = {variationInfo.totalSimulations.toLocaleString()} simulations
-              </p>
-            </div>
 
-            {running && (
-              <div className="mb-3 p-3 rounded-lg bg-slate-800/80 border border-emerald-500/30">
-                <div className="flex items-center justify-between text-sm text-slate-200 mb-2">
-                  <span className="font-medium">
-                    {progressInfo?.currentMap ? `Processing: ${progressInfo.currentMap}` : "Starting..."}
-                  </span>
-                  <span className="font-mono">{progress.toFixed(0)}%</span>
+              {/* Variation count display */}
+              <div className="mb-3 p-3 rounded-lg bg-slate-800/50 border border-white/10">
+                <div className="flex items-center justify-between text-sm flex-wrap gap-2">
+                  <div>
+                    <span className="text-slate-400">Possible layouts: </span>
+                    <span className="font-mono text-emerald-400">{variationInfo.total.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Maps to generate: </span>
+                    <span className="font-mono text-blue-400">{variationInfo.mapsToGenerate}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Agent variants: </span>
+                    <span className="font-mono text-purple-400">{variationInfo.agentVariants}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Total simulations: </span>
+                    <span className="font-mono text-amber-400">{variationInfo.totalSimulations.toLocaleString()}</span>
+                  </div>
                 </div>
-                <div className="h-3 rounded bg-white/10 overflow-hidden mb-2">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>
-                    {progressInfo?.completed ?? 0} / {progressInfo?.total ?? variationInfo.totalSimulations} completed
-                  </span>
-                  {progressInfo?.eta !== undefined && progressInfo.eta > 0 && (
-                    <span>ETA: ~{formatTime(progressInfo.eta)}</span>
-                  )}
-                  {progressInfo?.elapsed !== undefined && progressInfo.elapsed > 0 && (
-                    <span>Elapsed: {formatTime(progressInfo.elapsed)}</span>
-                  )}
-                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {variationInfo.mapsToGenerate} maps × 2 scenarios × {form.runs} run(s) × {variationInfo.agentVariants} agent count(s) = {variationInfo.totalSimulations.toLocaleString()} simulations
+                </p>
               </div>
-            )}
 
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <Label text="Max maps" hint={`Limit maps to generate (max ${variationInfo.total} possible).`}>
-                <input
-                  type="number"
-                  min={1}
-                  max={variationInfo.total}
-                  value={form.count}
-                  onChange={(e) => setForm({ ...form, count: Math.min(Number(e.target.value), variationInfo.total) })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Runs per scenario" hint="How many seeds to simulate per scenario to smooth randomness.">
-                <input
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={form.runs}
-                  onChange={(e) => setForm({ ...form, runs: Number(e.target.value) })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              {/* Agents input removed - auto-calculated */}
-              <Label text="Sim minutes" hint="In-game minutes to run per seed (e.g., 720 = half-day).">
-                <input
-                  type="number"
-                  min={1}
-                  value={form.minutes}
-                  onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Seed" hint="Base RNG seed for reproducible sweeps.">
-                <input
-                  type="text"
-                  value={form.seed}
-                  onChange={(e) => setForm({ ...form, seed: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Exit width" hint="CSV of exit corridor widths (e.g., 10,12); influences evacuation speed.">
-                <input
-                  type="text"
-                  value={form.exitWidth}
-                  onChange={(e) => setForm({ ...form, exitWidth: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Door corridor gap" hint="CSV of corridor thicknesses between dorm rows (e.g., 2,3).">
-                <input
-                  type="text"
-                  value={form.rowGap ?? ""}
-                  onChange={(e) => setForm({ ...form, rowGap: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Bar Widths" hint="CSV of X dimensions for bar area (e.g., 14,16,18).">
-                <input
-                  type="text"
-                  value={form.barX}
-                  onChange={(e) => setForm({ ...form, barX: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Bar Heights" hint="CSV of Y dimensions for bar area (e.g., 5,6,7).">
-                <input
-                  type="text"
-                  value={form.barY}
-                  onChange={(e) => setForm({ ...form, barY: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Gym Widths" hint="CSV of X dimensions for gym area (e.g., 8,10,12).">
-                <input
-                  type="text"
-                  value={form.gymX}
-                  onChange={(e) => setForm({ ...form, gymX: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Gym Heights" hint="CSV of Y dimensions for gym area (e.g., 4,5,6).">
-                <input
-                  type="text"
-                  value={form.gymY}
-                  onChange={(e) => setForm({ ...form, gymY: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
-              <Label text="Weights" hint="Adjust relative importance of each metric (0.0 - 1.0). Total should ideally sum to ~1.0 but is normalized.">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-500 uppercase">Capacity</span>
-                    <input
-                      type="number" step={0.05} min={0} value={form.wCapacity}
-                      onChange={(e) => setForm({ ...form, wCapacity: Number(e.target.value) })}
-                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+              {running && (
+                <div className="mb-3 p-3 rounded-lg bg-slate-800/80 border border-emerald-500/30">
+                  <div className="flex items-center justify-between text-sm text-slate-200 mb-2">
+                    <span className="font-medium">
+                      {progressInfo?.currentMap ? `Processing: ${progressInfo.currentMap}` : "Starting..."}
+                    </span>
+                    <span className="font-mono">{progress.toFixed(0)}%</span>
+                  </div>
+                  <div className="h-3 rounded bg-white/10 overflow-hidden mb-2">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                      style={{ width: `${progress}%` }}
                     />
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-500 uppercase">Utilization</span>
-                    <input
-                      type="number" step={0.05} min={0} value={form.wUtil}
-                      onChange={(e) => setForm({ ...form, wUtil: Number(e.target.value) })}
-                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-500 uppercase">Congestion</span>
-                    <input
-                      type="number" step={0.05} min={0} value={form.wCongestion}
-                      onChange={(e) => setForm({ ...form, wCongestion: Number(e.target.value) })}
-                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-500 uppercase">Path</span>
-                    <input
-                      type="number" step={0.05} min={0} value={form.wPath}
-                      onChange={(e) => setForm({ ...form, wPath: Number(e.target.value) })}
-                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-500 uppercase">Evacuation</span>
-                    <input
-                      type="number" step={0.05} min={0} value={form.wEvacuation}
-                      onChange={(e) => setForm({ ...form, wEvacuation: Number(e.target.value) })}
-                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-500 uppercase">Wait</span>
-                    <input
-                      type="number" step={0.05} min={0} value={form.wWait}
-                      onChange={(e) => setForm({ ...form, wWait: Number(e.target.value) })}
-                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                    />
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>
+                      {progressInfo?.completed ?? 0} / {progressInfo?.total ?? variationInfo.totalSimulations} completed
+                    </span>
+                    {progressInfo?.eta !== undefined && progressInfo.eta > 0 && (
+                      <span>ETA: ~{formatTime(progressInfo.eta)}</span>
+                    )}
+                    {progressInfo?.elapsed !== undefined && progressInfo.elapsed > 0 && (
+                      <span>Elapsed: {formatTime(progressInfo.elapsed)}</span>
+                    )}
                   </div>
                 </div>
-              </Label>
-              <Label text="Parallel workers" hint="Number of CPU cores to use for parallel simulation. More workers = faster but uses more RAM (~100MB each).">
-                <input
-                  type="number"
-                  min={1}
-                  max={32}
-                  value={form.workers}
-                  onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
-                />
-              </Label>
-              <Label text="Top-K results" hint="Only save the top K maps to reduce file I/O. Set to 0 to save all.">
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={form.topK}
-                  onChange={(e) => setForm({ ...form, topK: Math.max(0, Number(e.target.value)) })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
-                />
-              </Label>
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={form.parallel}
-                    onChange={(e) => setForm({ ...form, parallel: e.target.checked })}
-                  />
-                  <span className="text-slate-300">Parallel execution</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={form.heatmap}
-                    onChange={(e) => setForm({ ...form, heatmap: e.target.checked })}
-                  />
-                  <span className="text-slate-300">Render heatmaps</span>
-                </label>
-              </div>
-            </div>
-
-            {/* Performance estimate */}
-            <div className="mt-3 p-2 rounded bg-slate-800/50 border border-white/10 text-xs text-slate-400">
-              <span className="font-medium text-slate-300">Estimated time: </span>
-              {form.parallel ? (
-                <span>
-                  ~{Math.ceil(variationInfo.totalSimulations * 3 / form.workers / 60)} minutes with {form.workers} workers
-                  {form.workers < DEFAULT_WORKERS && <span className="text-amber-400"> (increase workers for faster execution)</span>}
-                </span>
-              ) : (
-                <span className="text-amber-400">
-                  ~{Math.ceil(variationInfo.totalSimulations * 3 / 60)} minutes (sequential - enable parallel for {Math.ceil(variationInfo.totalSimulations * 3 / DEFAULT_WORKERS / 60)}min)
-                </span>
               )}
-              <span className="block mt-1">
-                RAM usage: ~{form.parallel ? form.workers * 100 : 100}MB
-                {variationInfo.totalSimulations > 500 && <span className="text-amber-400"> • Large sweep - consider running overnight</span>}
-              </span>
-            </div>
 
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={handleRun}
-                disabled={running}
-                className="px-3 py-2 rounded bg-emerald-500 text-white font-semibold shadow disabled:opacity-50"
-              >
-                {running ? "Running…" : "Run sweep"}
-              </button>
-              <button
-                onClick={handleUpdateScores}
-                className="px-3 py-2 rounded bg-blue-500/20 border border-blue-500/30 hover:bg-blue-500/30 text-blue-200 text-sm"
-                disabled={loadingRank}
-              >
-                Update Scores
-              </button>
-              <button
-                onClick={fetchRanking}
-                className="px-3 py-2 rounded bg-white/10 border border-white/10 hover:bg-white/20 text-sm"
-                disabled={loadingRank}
-              >
-                {loadingRank ? "Refreshing…" : "Refresh ranking"}
-              </button>
-              <button
-                onClick={handleCleanup}
-                className="px-3 py-2 rounded bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-200 text-sm"
-              >
-                Cleanup
-              </button>
-            </div>
-            <div className="mt-3">
-              <p className="text-xs text-slate-400">
-                Note: very large runs (e.g. 10,000 maps) will take time. Keep this tab open while it processes; the bar is approximate—check the log below for live output.
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <Label text="Max maps" hint={`Limit maps to generate (max ${variationInfo.total} possible).`}>
+                  <input
+                    type="number"
+                    min={1}
+                    max={variationInfo.total}
+                    value={form.count}
+                    onChange={(e) => setForm({ ...form, count: Math.min(Number(e.target.value), variationInfo.total) })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                <Label text="Runs per scenario" hint="How many seeds to simulate per scenario to smooth randomness.">
+                  <input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={form.runs}
+                    onChange={(e) => setForm({ ...form, runs: Number(e.target.value) })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                {/* Agents input removed - auto-calculated */}
+                <Label text="Sim minutes" hint="In-game minutes to run per seed (e.g., 720 = half-day).">
+                  <input
+                    type="number"
+                    min={1}
+                    value={form.minutes}
+                    onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                <Label text="Seed" hint="Base RNG seed for reproducible sweeps.">
+                  <input
+                    type="text"
+                    value={form.seed}
+                    onChange={(e) => setForm({ ...form, seed: e.target.value })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                <Label text="Exit width" hint="CSV of exit corridor widths (e.g., 10,12); influences evacuation speed.">
+                  <input
+                    type="text"
+                    value={form.exitWidth}
+                    onChange={(e) => setForm({ ...form, exitWidth: e.target.value })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                <Label text="Door corridor gap" hint="CSV of corridor thicknesses between dorm rows (e.g., 2,3).">
+                  <input
+                    type="text"
+                    value={form.rowGap ?? ""}
+                    onChange={(e) => setForm({ ...form, rowGap: e.target.value })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                <Label text="Bar Widths" hint="CSV of X dimensions for bar area (e.g., 14,16,18).">
+                  <input
+                    type="text"
+                    value={form.barX}
+                    onChange={(e) => setForm({ ...form, barX: e.target.value })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                <Label text="Bar Heights" hint="CSV of Y dimensions for bar area (e.g., 5,6,7).">
+                  <input
+                    type="text"
+                    value={form.barY}
+                    onChange={(e) => setForm({ ...form, barY: e.target.value })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                <Label text="Gym Widths" hint="CSV of X dimensions for gym area (e.g., 8,10,12).">
+                  <input
+                    type="text"
+                    value={form.gymX}
+                    onChange={(e) => setForm({ ...form, gymX: e.target.value })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                <Label text="Gym Heights" hint="CSV of Y dimensions for gym area (e.g., 4,5,6).">
+                  <input
+                    type="text"
+                    value={form.gymY}
+                    onChange={(e) => setForm({ ...form, gymY: e.target.value })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                  />
+                </Label>
+                <Label text="Weights" hint="Adjust relative importance of each metric (0.0 - 1.0). Total should ideally sum to ~1.0 but is normalized.">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-500 uppercase">Capacity</span>
+                      <input
+                        type="number" step={0.05} min={0} value={form.wCapacity}
+                        onChange={(e) => setForm({ ...form, wCapacity: Number(e.target.value) })}
+                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-500 uppercase">Utilization</span>
+                      <input
+                        type="number" step={0.05} min={0} value={form.wUtil}
+                        onChange={(e) => setForm({ ...form, wUtil: Number(e.target.value) })}
+                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-500 uppercase">Congestion</span>
+                      <input
+                        type="number" step={0.05} min={0} value={form.wCongestion}
+                        onChange={(e) => setForm({ ...form, wCongestion: Number(e.target.value) })}
+                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-500 uppercase">Path</span>
+                      <input
+                        type="number" step={0.05} min={0} value={form.wPath}
+                        onChange={(e) => setForm({ ...form, wPath: Number(e.target.value) })}
+                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-500 uppercase">Evacuation</span>
+                      <input
+                        type="number" step={0.05} min={0} value={form.wEvacuation}
+                        onChange={(e) => setForm({ ...form, wEvacuation: Number(e.target.value) })}
+                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-500 uppercase">Wait</span>
+                      <input
+                        type="number" step={0.05} min={0} value={form.wWait}
+                        onChange={(e) => setForm({ ...form, wWait: Number(e.target.value) })}
+                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                      />
+                    </div>
+                  </div>
+                </Label>
+                <Label text="Parallel workers" hint="Number of CPU cores to use for parallel simulation. More workers = faster but uses more RAM (~100MB each).">
+                  <input
+                    type="number"
+                    min={1}
+                    max={32}
+                    value={form.workers}
+                    onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
+                  />
+                </Label>
+                <Label text="Top-K results" hint="Only save the top K maps to reduce file I/O. Set to 0 to save all.">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={form.topK}
+                    onChange={(e) => setForm({ ...form, topK: Math.max(0, Number(e.target.value)) })}
+                    className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
+                  />
+                </Label>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.parallel}
+                      onChange={(e) => setForm({ ...form, parallel: e.target.checked })}
+                    />
+                    <span className="text-slate-300">Parallel execution</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.heatmap}
+                      onChange={(e) => setForm({ ...form, heatmap: e.target.checked })}
+                    />
+                    <span className="text-slate-300">Render heatmaps</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Performance estimate */}
+              <div className="mt-3 p-2 rounded bg-slate-800/50 border border-white/10 text-xs text-slate-400">
+                <span className="font-medium text-slate-300">Estimated time: </span>
+                {form.parallel ? (
+                  <span>
+                    ~{Math.ceil(variationInfo.totalSimulations * 3 / form.workers / 60)} minutes with {form.workers} workers
+                    {form.workers < DEFAULT_WORKERS && <span className="text-amber-400"> (increase workers for faster execution)</span>}
+                  </span>
+                ) : (
+                  <span className="text-amber-400">
+                    ~{Math.ceil(variationInfo.totalSimulations * 3 / 60)} minutes (sequential - enable parallel for {Math.ceil(variationInfo.totalSimulations * 3 / DEFAULT_WORKERS / 60)}min)
+                  </span>
+                )}
+                <span className="block mt-1">
+                  RAM usage: ~{form.parallel ? form.workers * 100 : 100}MB
+                  {variationInfo.totalSimulations > 500 && <span className="text-amber-400"> • Large sweep - consider running overnight</span>}
+                </span>
+              </div>
+
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={handleRun}
+                  disabled={running}
+                  className="px-3 py-2 rounded bg-emerald-500 text-white font-semibold shadow disabled:opacity-50"
+                >
+                  {running ? "Running…" : "Run sweep"}
+                </button>
+                <button
+                  onClick={handleUpdateScores}
+                  className="px-3 py-2 rounded bg-blue-500/20 border border-blue-500/30 hover:bg-blue-500/30 text-blue-200 text-sm"
+                  disabled={loadingRank}
+                >
+                  Update Scores
+                </button>
+                <button
+                  onClick={fetchRanking}
+                  className="px-3 py-2 rounded bg-white/10 border border-white/10 hover:bg-white/20 text-sm"
+                  disabled={loadingRank}
+                >
+                  {loadingRank ? "Refreshing…" : "Refresh ranking"}
+                </button>
+                <button
+                  onClick={handleCleanup}
+                  className="px-3 py-2 rounded bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-200 text-sm"
+                >
+                  Cleanup
+                </button>
+              </div>
+              <div className="mt-3">
+                <p className="text-xs text-slate-400">
+                  Note: very large runs (e.g. 10,000 maps) will take time. Keep this tab open while it processes; the bar is approximate—check the log below for live output.
+                </p>
+              </div>
+
+            </section>
+
+            {/* Methodology moved to bottom left */}
+            <section className="bg-blue-900/10 border border-blue-500/20 rounded-xl p-4 text-sm text-slate-300">
+              <h3 className="text-blue-400 font-semibold mb-1">Scoring Methodology</h3>
+              <p className="opacity-80 mb-1">
+                Results are graded on a <strong>Bell Curve (0-100)</strong> relative to the current batch.
               </p>
-            </div>
-          </section>
+              <p className="text-xs opacity-60">
+                Average = 50. Each component (Capacity, Util, etc.) is graded 0-100, then averaged by weight.
+              </p>
+            </section>
 
-          {/* Methodology moved to top */}
+          </div>
 
-          <section className="md:col-span-3 bg-white/5 border border-white/10 rounded-xl p-4 shadow-lg">
+          <section className="md:col-span-2 lg:col-span-3 bg-white/5 border border-white/10 rounded-xl p-4 shadow-lg flex flex-col h-fit">
             <div className="mb-3">
               <h2 className="text-lg font-semibold">Top maps</h2>
               <p className="text-xs text-slate-400 mt-1">
@@ -622,7 +626,9 @@ export default function SweepLabPage() {
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-3 text-sm">
+
+
+            <div className="flex flex-wrap items-center gap-4 mt-3 pt-3 border-t border-white/5 text-sm">
               <div className="flex items-center gap-1 text-[11px] text-slate-400">
                 <LegendSwatch color="#fde68a" label="Bar" />
                 <LegendSwatch color="#a7f3d0" label="Gym" />
@@ -630,38 +636,40 @@ export default function SweepLabPage() {
                 <LegendSwatch color="#e0e7ff" label="Room" />
                 <LegendSwatch color="#fca5a5" label="Exit" />
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={showHeatmaps} onChange={(e) => setShowHeatmaps(e.target.checked)} />
-                Show heatmaps
-                {showHeatmaps && (
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={1}
-                    step={0.05}
-                    value={heatmapOpacity}
-                    onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
-                    className="w-24"
-                    title="Heatmap opacity"
-                  />
-                )}
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={showMap} onChange={(e) => setShowMap(e.target.checked)} />
-                Show map
-                {showMap && (
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={1}
-                    step={0.05}
-                    value={mapOpacity}
-                    onChange={(e) => setMapOpacity(Number(e.target.value))}
-                    className="w-24"
-                    title="Map opacity"
-                  />
-                )}
-              </label>
+              <div className="flex items-center gap-4 ml-auto">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={showHeatmaps} onChange={(e) => setShowHeatmaps(e.target.checked)} />
+                  Show heatmaps
+                  {showHeatmaps && (
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={1}
+                      step={0.05}
+                      value={heatmapOpacity}
+                      onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
+                      className="w-24 accent-emerald-500"
+                      title="Heatmap opacity"
+                    />
+                  )}
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={showMap} onChange={(e) => setShowMap(e.target.checked)} />
+                  Show map
+                  {showMap && (
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={1}
+                      step={0.05}
+                      value={mapOpacity}
+                      onChange={(e) => setMapOpacity(Number(e.target.value))}
+                      className="w-24 accent-blue-500"
+                      title="Map opacity"
+                    />
+                  )}
+                </label>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -680,7 +688,8 @@ export default function SweepLabPage() {
               )}
             </div>
           </section>
-        </div>
+        </div >
+
 
         <section className="bg-black/40 border border-white/10 rounded-xl p-4 shadow-inner">
           <div className="flex items-center justify-between mb-2">

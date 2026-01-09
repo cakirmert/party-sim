@@ -40,14 +40,22 @@ export async function GET(req: Request) {
   const rankingPath = join(baseDir, "analysis", "ranking.json");
   const top = Number(searchParams.get("top") ?? 10);
 
+  /* Safe Read */
   let raw: string;
   try {
     raw = await fs.readFile(rankingPath, "utf8");
+    if (!raw.trim()) throw new Error("Empty ranking file");
   } catch (err) {
-    return NextResponse.json({ error: `Ranking not found at ${rankingPath}`, detail: String(err) }, { status: 404 });
+    return NextResponse.json({ error: `Ranking not found or empty at ${rankingPath}`, detail: String(err) }, { status: 404 });
   }
 
-  const parsed = JSON.parse(raw) as RankingFile;
+  let parsed: RankingFile;
+  try {
+    parsed = JSON.parse(raw) as RankingFile;
+  } catch (err) {
+    return NextResponse.json({ error: "Invalid ranking JSON", detail: String(err) }, { status: 500 });
+  }
+
   const maps = parsed.maps ?? [];
 
   const limited = maps
@@ -64,7 +72,10 @@ export async function GET(req: Request) {
     mapFile?: string;
     heatmap?: string | null;
     heatmapPath?: string;
+    runPath?: string;
+    scoreBreakdown?: Record<string, number>;
   }> = [];
+
   for (const m of limited) {
     let heatmap: string | null = null;
     const heatPath = m.heatmaps?.[0];
@@ -72,6 +83,11 @@ export async function GET(req: Request) {
       const resolved = isAbsolute(heatPath) ? heatPath : resolve(process.cwd(), heatPath);
       heatmap = await loadHeatmapData(resolved);
     }
+
+    // Pass through explicit properties that might exist on 'm' but aren't in the type definition above
+    // (We cast 'm' to any to access the extended properties added by analyze-results.ts)
+    const ext = m as any;
+
     payload.push({
       map: m.map,
       rank: m.rank,
@@ -81,6 +97,8 @@ export async function GET(req: Request) {
       mapFile: m.mapFile,
       heatmap,
       heatmapPath: m.heatmaps?.[0],
+      runPath: ext.runPath,
+      scoreBreakdown: ext.scoreBreakdown,
     });
   }
 
