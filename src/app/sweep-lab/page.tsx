@@ -48,7 +48,7 @@ const DEFAULT_WORKERS = typeof navigator !== "undefined" ? Math.max(1, (navigato
 const DEFAULT_FORM = {
   count: 32,
   runs: 1,
-  minutes: 960, // 16 hours: 6am to 10pm
+  minutes: 1200, // 20 hours: 6am to 2am
   seed: "ui-seed",
   rowGap: "2,3",
   barX: "14,16",
@@ -126,33 +126,6 @@ export default function SweepLabPage() {
     }
   };
 
-  const handleUpdateScores = async () => {
-    setLoadingRank(true);
-    try {
-      if (!form.resultsDir) return;
-      await fetch("/api/sweep/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          resultsDir: form.resultsDir,
-          weights: {
-            capacity: form.wCapacity,
-            utilization: form.wUtil,
-            congestion: form.wCongestion,
-            path: form.wPath,
-            evacuation: form.wEvacuation,
-            wait: form.wWait,
-          },
-        }),
-      });
-      await fetchRanking();
-    } catch (e) {
-      console.error(e);
-      setRunLog((prev) => prev + `\nError updating scores: ${e}`);
-    } finally {
-      setLoadingRank(false);
-    }
-  };
 
   useEffect(() => {
     fetchRanking().catch(() => { });
@@ -255,456 +228,280 @@ export default function SweepLabPage() {
     }
   };
 
-  // Map preview effect removed as we now use dynamic CanvasRenderer in MapResultCard
-
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-100">
-      <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.2em] text-slate-400">Simulation Lab</p>
-            <h1 className="text-3xl font-bold">Sweep & Rank Maps</h1>
-            <p className="text-slate-400 max-w-3xl">
-              Generate thousands of layout variants, run headless sims, and inspect the top-ranked maps with heatmaps and metrics.
+    <main className="min-h-screen bg-slate-950 text-slate-100 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black font-sans selection:bg-emerald-500/30">
+      <div className="max-w-[1600px] mx-auto px-4 py-8 flex flex-col gap-8">
+
+        {/* Header */}
+        <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-white/5 pb-6">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20">
+                <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                </svg>
+              </div>
+              <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+                Sweep Lab
+              </h1>
+            </div>
+            <p className="text-slate-400 text-sm max-w-2xl">
+              Procedurally generate map variants, simulate agent crowds, and analyze performance metrics to find the optimal venue layout.
             </p>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowInfo(s => !s)}
-              className="px-3 py-2 rounded bg-white/10 border border-white/20 hover:bg-white/20 text-sm"
-            >
-              {showInfo ? "Hide info" : "Info"}
-            </button>
-            <Link href="/" className="px-3 py-2 rounded bg-white/10 border border-white/20 hover:bg-white/20 text-sm">
-              ← Back to sim
+          <div className="flex gap-3">
+            <Link href="/" className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-sm font-medium transition-colors flex items-center gap-2">
+              <svg className="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+              Back to Sim
             </Link>
-            <Link href="/map-editor" className="px-3 py-2 rounded bg-blue-500 text-white text-sm shadow">
-              Open map editor
+            <Link href="/map-editor" className="px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 hover:bg-indigo-500/30 text-indigo-300 text-sm font-medium transition-colors flex items-center gap-2">
+              <svg className="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+              Map Editor
             </Link>
           </div>
-        </div>
+        </header>
 
-        {showInfo && (
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-sm text-slate-200 space-y-2">
-            <p className="font-semibold text-slate-100">What affects runtime?</p>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Map count × runs per map: doubles with more seeds (weekday+weekend are both simulated).</li>
-              <li>Agent count: higher populations slow pathfinding and density tracking.</li>
-              <li>Heatmaps: rendering and larger heatmap scale (e.g., 4×) increases PNG write time/size.</li>
-              <li>Map size/complexity: bigger grids and denser corridors add pathfinding work.</li>
-            </ul>
-            <p className="text-slate-400">Tip: start small (few maps, low heatmap scale) to iterate, then scale up.</p>
-          </div>
-        )}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
 
+          {/* Left Column: Configuration */}
+          <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-6">
 
-
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          <div className="md:col-span-1 flex flex-col gap-6">
-            <section className="bg-white/5 border border-white/10 rounded-xl p-4 shadow-lg">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold">Run a sweep</h2>
-                <button
-                  className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
-                  onClick={() => setForm(DEFAULT_FORM)}
-                  disabled={running}
-                >
-                  Reset defaults
+            {/* Main Config Card */}
+            <section className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5 shadow-xl ring-1 ring-white/5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <span className="w-1.5 h-4 rounded-full bg-emerald-500"></span>
+                  Configuration
+                </h2>
+                <button onClick={() => setForm(DEFAULT_FORM)} disabled={running} className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 hover:text-emerald-400 disabled:opacity-50 transition-colors">
+                  Reset
                 </button>
               </div>
 
-              {/* Variation count display */}
-              <div className="mb-3 p-3 rounded-lg bg-slate-800/50 border border-white/10">
-                <div className="flex items-center justify-between text-sm flex-wrap gap-2">
-                  <div>
-                    <span className="text-slate-400">Possible layouts: </span>
-                    <span className="font-mono text-emerald-400">{variationInfo.total.toLocaleString()}</span>
+              <div className="space-y-4">
+                {/* Primary Stats Grid */}
+                <div className="grid grid-cols-2 gap-3">
+                  <Label text="Map Variations" hint="Max unique layouts">
+                    <input type="number" min={1} max={variationInfo.total} value={form.count}
+                      onChange={(e) => setForm({ ...form, count: Math.min(Number(e.target.value), variationInfo.total) })}
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                    />
+                  </Label>
+                  <Label text="Runs / Map" hint="Seeds per map">
+                    <input type="number" min={1} max={5} value={form.runs}
+                      onChange={(e) => setForm({ ...form, runs: Number(e.target.value) })}
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                    />
+                  </Label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Label text="Sim Duration" hint="Minutes (1260 = 21h)">
+                    <input type="number" min={60} value={form.minutes}
+                      onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })}
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                    />
+                  </Label>
+                  <Label text="Concurrency" hint="Threads">
+                    <input type="number" min={1} max={32} value={form.workers}
+                      onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                    />
+                  </Label>
+                </div>
+
+                <Label text="Base Seed" hint="Random seed">
+                  <input type="text" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono text-slate-300 focus:border-emerald-500/50 outline-none transition-all"
+                  />
+                </Label>
+
+                {/* Advanced Map Params Collapsible */}
+                <details className="group bg-black/20 rounded-lg border border-white/5 open:bg-black/40 transition-colors">
+                  <summary className="cursor-pointer p-3 text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-slate-300 flex items-center justify-between select-none">
+                    Map Generation Params
+                    <svg className="w-4 h-4 transition-transform group-open:rotate-180 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </summary>
+                  <div className="p-3 pt-0 grid gap-3 text-xs">
+                    <Label text="Bar Dimensions (CSV)" hint="Widths, Heights (e.g. 14,16)">
+                      <div className="grid grid-cols-2 gap-2">
+                        <input placeholder="Widths" value={form.barX} onChange={e => setForm({ ...form, barX: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                        <input placeholder="Heights" value={form.barY} onChange={e => setForm({ ...form, barY: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                      </div>
+                    </Label>
+                    <Label text="Gym Dimensions (CSV)" hint="Widths, Heights">
+                      <div className="grid grid-cols-2 gap-2">
+                        <input placeholder="Widths" value={form.gymX} onChange={e => setForm({ ...form, gymX: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                        <input placeholder="Heights" value={form.gymY} onChange={e => setForm({ ...form, gymY: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                      </div>
+                    </Label>
+                    <Label text="Layout" hint="Row gaps, Exit widths">
+                      <div className="grid grid-cols-2 gap-2">
+                        <input placeholder="Gap (2,3)" value={form.rowGap} onChange={e => setForm({ ...form, rowGap: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                        <input placeholder="Exit (10,12)" value={form.exitWidth} onChange={e => setForm({ ...form, exitWidth: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                      </div>
+                    </Label>
                   </div>
-                  <div>
-                    <span className="text-slate-400">Maps to generate: </span>
-                    <span className="font-mono text-blue-400">{variationInfo.mapsToGenerate}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Agent variants: </span>
-                    <span className="font-mono text-purple-400">{variationInfo.agentVariants}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Total simulations: </span>
-                    <span className="font-mono text-amber-400">{variationInfo.totalSimulations.toLocaleString()}</span>
+                </details>
+
+                {/* Weight Controls */}
+                <div className="bg-black/20 rounded-lg p-3 border border-white/5">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-3">Scoring Weights</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { l: "Cap", k: "wCapacity" }, { l: "Util", k: "wUtil" }, { l: "Cong", k: "wCongestion" },
+                      { l: "Path", k: "wPath" }, { l: "Evac", k: "wEvacuation" }, { l: "Wait", k: "wWait" }
+                    ].map((item) => (
+                      <div key={item.k} className="flex flex-col gap-1">
+                        <span className="text-[9px] text-slate-500 uppercase">{item.l}</span>
+                        <input type="number" step={0.05} value={(form as any)[item.k]}
+                          onChange={e => setForm({ ...form, [item.k]: Number(e.target.value) })}
+                          className="w-full bg-black/50 border border-white/10 rounded px-1.5 py-1 text-xs text-center focus:border-blue-500/50 outline-none"
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  {variationInfo.mapsToGenerate} maps × 2 scenarios × {form.runs} run(s) × {variationInfo.agentVariants} agent count(s) = {variationInfo.totalSimulations.toLocaleString()} simulations
-                </p>
-              </div>
 
-              {running && (
-                <div className="mb-3 p-3 rounded-lg bg-slate-800/80 border border-emerald-500/30">
-                  <div className="flex items-center justify-between text-sm text-slate-200 mb-2">
-                    <span className="font-medium">
-                      {progressInfo?.currentMap ? `Processing: ${progressInfo.currentMap}` : "Starting..."}
-                    </span>
-                    <span className="font-mono">{progress.toFixed(0)}%</span>
-                  </div>
-                  <div className="h-3 rounded bg-white/10 overflow-hidden mb-2">
-                    <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>
-                      {progressInfo?.completed ?? 0} / {progressInfo?.total ?? variationInfo.totalSimulations} completed
-                    </span>
-                    {progressInfo?.eta !== undefined && progressInfo.eta > 0 && (
-                      <span>ETA: ~{formatTime(progressInfo.eta)}</span>
-                    )}
-                    {progressInfo?.elapsed !== undefined && progressInfo.elapsed > 0 && (
-                      <span>Elapsed: {formatTime(progressInfo.elapsed)}</span>
-                    )}
-                  </div>
+                {/* Summary Footer */}
+                <div className="text-[11px] text-slate-400 bg-slate-900/50 rounded-lg p-3 border border-white/5 space-y-1">
+                  <div className="flex justify-between"><span>Generating:</span> <span className="text-white">{variationInfo.mapsToGenerate} maps</span></div>
+                  <div className="flex justify-between"><span>Total Sims:</span> <span className="text-emerald-400">{variationInfo.totalSimulations.toLocaleString()}</span></div>
+                  <div className="flex justify-between border-t border-white/5 pt-1 mt-1"><span>Est Time:</span> <span>~{Math.ceil(variationInfo.totalSimulations * 3 / form.workers / 60)}m</span></div>
                 </div>
-              )}
 
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <Label text="Max maps" hint={`Limit maps to generate (max ${variationInfo.total} possible).`}>
-                  <input
-                    type="number"
-                    min={1}
-                    max={variationInfo.total}
-                    value={form.count}
-                    onChange={(e) => setForm({ ...form, count: Math.min(Number(e.target.value), variationInfo.total) })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                <Label text="Runs per scenario" hint="How many seeds to simulate per scenario to smooth randomness.">
-                  <input
-                    type="number"
-                    min={1}
-                    max={5}
-                    value={form.runs}
-                    onChange={(e) => setForm({ ...form, runs: Number(e.target.value) })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                {/* Agents input removed - auto-calculated */}
-                <Label text="Sim minutes" hint="In-game minutes to run per seed (e.g., 720 = half-day).">
-                  <input
-                    type="number"
-                    min={1}
-                    value={form.minutes}
-                    onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                <Label text="Seed" hint="Base RNG seed for reproducible sweeps.">
-                  <input
-                    type="text"
-                    value={form.seed}
-                    onChange={(e) => setForm({ ...form, seed: e.target.value })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                <Label text="Exit width" hint="CSV of exit corridor widths (e.g., 10,12); influences evacuation speed.">
-                  <input
-                    type="text"
-                    value={form.exitWidth}
-                    onChange={(e) => setForm({ ...form, exitWidth: e.target.value })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                <Label text="Door corridor gap" hint="CSV of corridor thicknesses between dorm rows (e.g., 2,3).">
-                  <input
-                    type="text"
-                    value={form.rowGap ?? ""}
-                    onChange={(e) => setForm({ ...form, rowGap: e.target.value })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                <Label text="Bar Widths" hint="CSV of X dimensions for bar area (e.g., 14,16,18).">
-                  <input
-                    type="text"
-                    value={form.barX}
-                    onChange={(e) => setForm({ ...form, barX: e.target.value })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                <Label text="Bar Heights" hint="CSV of Y dimensions for bar area (e.g., 5,6,7).">
-                  <input
-                    type="text"
-                    value={form.barY}
-                    onChange={(e) => setForm({ ...form, barY: e.target.value })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                <Label text="Gym Widths" hint="CSV of X dimensions for gym area (e.g., 8,10,12).">
-                  <input
-                    type="text"
-                    value={form.gymX}
-                    onChange={(e) => setForm({ ...form, gymX: e.target.value })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                <Label text="Gym Heights" hint="CSV of Y dimensions for gym area (e.g., 4,5,6).">
-                  <input
-                    type="text"
-                    value={form.gymY}
-                    onChange={(e) => setForm({ ...form, gymY: e.target.value })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                  />
-                </Label>
-                <Label text="Weights" hint="Adjust relative importance of each metric (0.0 - 1.0). Total should ideally sum to ~1.0 but is normalized.">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-500 uppercase">Capacity</span>
-                      <input
-                        type="number" step={0.05} min={0} value={form.wCapacity}
-                        onChange={(e) => setForm({ ...form, wCapacity: Number(e.target.value) })}
-                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-500 uppercase">Utilization</span>
-                      <input
-                        type="number" step={0.05} min={0} value={form.wUtil}
-                        onChange={(e) => setForm({ ...form, wUtil: Number(e.target.value) })}
-                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-500 uppercase">Congestion</span>
-                      <input
-                        type="number" step={0.05} min={0} value={form.wCongestion}
-                        onChange={(e) => setForm({ ...form, wCongestion: Number(e.target.value) })}
-                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-500 uppercase">Path</span>
-                      <input
-                        type="number" step={0.05} min={0} value={form.wPath}
-                        onChange={(e) => setForm({ ...form, wPath: Number(e.target.value) })}
-                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-500 uppercase">Evacuation</span>
-                      <input
-                        type="number" step={0.05} min={0} value={form.wEvacuation}
-                        onChange={(e) => setForm({ ...form, wEvacuation: Number(e.target.value) })}
-                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-500 uppercase">Wait</span>
-                      <input
-                        type="number" step={0.05} min={0} value={form.wWait}
-                        onChange={(e) => setForm({ ...form, wWait: Number(e.target.value) })}
-                        className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                      />
-                    </div>
-                  </div>
-                </Label>
-                <Label text="Parallel workers" hint="Number of CPU cores to use for parallel simulation. More workers = faster but uses more RAM (~100MB each).">
-                  <input
-                    type="number"
-                    min={1}
-                    max={32}
-                    value={form.workers}
-                    onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
-                  />
-                </Label>
-                <Label text="Top-K results" hint="Only save the top K maps to reduce file I/O. Set to 0 to save all.">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={form.topK}
-                    onChange={(e) => setForm({ ...form, topK: Math.max(0, Number(e.target.value)) })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
-                  />
-                </Label>
-                <div className="flex flex-col gap-2">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.parallel}
-                      onChange={(e) => setForm({ ...form, parallel: e.target.checked })}
-                    />
-                    <span className="text-slate-300">Parallel execution</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.heatmap}
-                      onChange={(e) => setForm({ ...form, heatmap: e.target.checked })}
-                    />
-                    <span className="text-slate-300">Render heatmaps</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Performance estimate */}
-              <div className="mt-3 p-2 rounded bg-slate-800/50 border border-white/10 text-xs text-slate-400">
-                <span className="font-medium text-slate-300">Estimated time: </span>
-                {form.parallel ? (
-                  <span>
-                    ~{Math.ceil(variationInfo.totalSimulations * 3 / form.workers / 60)} minutes with {form.workers} workers
-                    {form.workers < DEFAULT_WORKERS && <span className="text-amber-400"> (increase workers for faster execution)</span>}
-                  </span>
-                ) : (
-                  <span className="text-amber-400">
-                    ~{Math.ceil(variationInfo.totalSimulations * 3 / 60)} minutes (sequential - enable parallel for {Math.ceil(variationInfo.totalSimulations * 3 / DEFAULT_WORKERS / 60)}min)
-                  </span>
-                )}
-                <span className="block mt-1">
-                  RAM usage: ~{form.parallel ? form.workers * 100 : 100}MB
-                  {variationInfo.totalSimulations > 500 && <span className="text-amber-400"> • Large sweep - consider running overnight</span>}
-                </span>
-              </div>
-
-              <div className="mt-3 flex gap-2">
                 <button
                   onClick={handleRun}
                   disabled={running}
-                  className="px-3 py-2 rounded bg-emerald-500 text-white font-semibold shadow disabled:opacity-50"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
                 >
-                  {running ? "Running…" : "Run sweep"}
+                  {running ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      Run Sweep
+                    </>
+                  )}
                 </button>
-                <button
-                  onClick={handleUpdateScores}
-                  className="px-3 py-2 rounded bg-blue-500/20 border border-blue-500/30 hover:bg-blue-500/30 text-blue-200 text-sm"
-                  disabled={loadingRank}
-                >
-                  Update Scores
-                </button>
-                <button
-                  onClick={fetchRanking}
-                  className="px-3 py-2 rounded bg-white/10 border border-white/10 hover:bg-white/20 text-sm"
-                  disabled={loadingRank}
-                >
-                  {loadingRank ? "Refreshing…" : "Refresh ranking"}
-                </button>
-                <button
-                  onClick={handleCleanup}
-                  className="px-3 py-2 rounded bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-200 text-sm"
-                >
-                  Cleanup
-                </button>
-              </div>
-              <div className="mt-3">
-                <p className="text-xs text-slate-400">
-                  Note: very large runs (e.g. 10,000 maps) will take time. Keep this tab open while it processes; the bar is approximate—check the log below for live output.
-                </p>
-              </div>
 
+                {/* Progress Bar */}
+                {running && (
+                  <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="absolute top-0 left-0 h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
+                  </div>
+                )}
+
+              </div>
             </section>
 
-            {/* Methodology moved to bottom left */}
-            <section className="bg-blue-900/10 border border-blue-500/20 rounded-xl p-4 text-sm text-slate-300">
-              <h3 className="text-blue-400 font-semibold mb-1">Scoring Methodology</h3>
-              <p className="opacity-80 mb-1">
-                Results are graded on a <strong>Bell Curve (0-100)</strong> relative to the current batch.
+            <section className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-4 text-xs text-slate-400">
+              <h3 className="text-slate-200 font-semibold mb-2">Scoring Methodology</h3>
+              <p className="mb-2">
+                Scores are normalized on a <strong>Z-Score Bell Curve</strong> (0-100) relative to the current batch.
               </p>
-              <p className="text-xs opacity-60">
-                Average = 50. Each component (Capacity, Util, etc.) is graded 0-100, then averaged by weight.
-              </p>
+              <ul className="list-disc pl-4 space-y-1 opacity-80">
+                <li><strong>Capacity:</strong> Higher = Better (Target ~150)</li>
+                <li><strong>Congestion:</strong> Lower density clusters = Better</li>
+                <li><strong>Wait Times:</strong> Lower bar/gym queues = Better</li>
+              </ul>
+            </section>
+
+            <section className="bg-black/40 border border-white/10 rounded-xl p-4 font-mono text-xs h-48 overflow-y-auto">
+              <div className="flex justify-between items-center mb-2 sticky top-0 bg-black/80 p-1 -mx-1 -mt-1 backdrop-blur-sm rounded">
+                <span className="font-semibold text-slate-300">Run Log</span>
+                <button onClick={() => setRunLog("")} className="text-slate-500 hover:text-white transition-colors">Clear</button>
+              </div>
+              <div className="whitespace-pre-wrap text-slate-400 font-mono leading-relaxed">
+                {runLog || "Ready to run."}
+              </div>
             </section>
 
           </div>
 
-          <section className="md:col-span-2 lg:col-span-3 bg-white/5 border border-white/10 rounded-xl p-4 shadow-lg flex flex-col h-fit">
-            <div className="mb-3">
-              <h2 className="text-lg font-semibold">Top maps</h2>
-              <p className="text-xs text-slate-400 mt-1">
-                {ranking?.generatedAt ? `Last analyzed: ${new Date(ranking.generatedAt).toLocaleString()}` : "Load a ranking to view results."}
-              </p>
-              {weightsText && (
-                <p className="text-[10px] text-slate-500 mt-1 break-all max-w-full">
-                  Current weights: <span className="text-slate-400 font-mono">{weightsText}</span>
-                </p>
-              )}
-            </div>
+          {/* Right Column: Results */}
+          <div className="lg:col-span-8 xl:col-span-9 flex flex-col h-full min-h-[500px]">
+            <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-xl ring-1 ring-white/5 flex-1 flex flex-col">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6 border-b border-white/5 pb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <span className="w-1.5 h-5 rounded-full bg-blue-500"></span>
+                    Top Ranked Maps
+                  </h2>
+                  <p className="text-sm text-slate-400 mt-1">
+                    {ranking?.generatedAt
+                      ? `Analysis from ${new Date(ranking.generatedAt).toLocaleTimeString()}`
+                      : "No results yet. Run a sweep to generate maps."}
+                  </p>
+                  {weightsText && <p className="text-[10px] text-slate-500 mt-1 font-mono">{weightsText}</p>}
+                </div>
 
-
-            <div className="flex flex-wrap items-center gap-4 mt-3 pt-3 border-t border-white/5 text-sm">
-              <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                <LegendSwatch color="#fde68a" label="Bar" />
-                <LegendSwatch color="#a7f3d0" label="Gym" />
-                <LegendSwatch color="#dbeafe" label="Corridor" />
-                <LegendSwatch color="#e0e7ff" label="Room" />
-                <LegendSwatch color="#fca5a5" label="Exit" />
+                <div className="flex items-center gap-3">
+                  <button onClick={handleCleanup} className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-medium transition-colors border border-red-500/10">
+                    Cleanup
+                  </button>
+                  <button onClick={fetchRanking} disabled={loadingRank} className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-medium transition-colors border border-white/10">
+                    {loadingRank ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-4 ml-auto">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={showHeatmaps} onChange={(e) => setShowHeatmaps(e.target.checked)} />
-                  Show heatmaps
+
+              {/* Legend & Controls */}
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-6 bg-black/20 p-3 rounded-lg border border-white/5">
+                <div className="flex items-center gap-3 text-xs">
+                  <LegendSwatch color="#fde68a" label="Bar" />
+                  <LegendSwatch color="#a7f3d0" label="Gym" />
+                  <LegendSwatch color="#dbeafe" label="Corridor" />
+                  <LegendSwatch color="#fb7185" label="Exit" />
+                </div>
+                <div className="flex items-center gap-4 text-xs">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" checked={showHeatmaps} onChange={e => setShowHeatmaps(e.target.checked)} className="rounded bg-slate-700 border-slate-600 text-emerald-500 focus:ring-emerald-500/30" />
+                    <span className="text-slate-300">Heatmaps</span>
+                  </label>
                   {showHeatmaps && (
-                    <input
-                      type="range"
-                      min={0.1}
-                      max={1}
-                      step={0.05}
-                      value={heatmapOpacity}
-                      onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
-                      className="w-24 accent-emerald-500"
-                      title="Heatmap opacity"
-                    />
+                    <input type="range" min={0.1} max={1} step={0.1} value={heatmapOpacity} onChange={e => setHeatmapOpacity(Number(e.target.value))} className="w-20 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
                   )}
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={showMap} onChange={(e) => setShowMap(e.target.checked)} />
-                  Show map
+                  <div className="w-px h-4 bg-white/10"></div>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" checked={showMap} onChange={e => setShowMap(e.target.checked)} className="rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500/30" />
+                    <span className="text-slate-300">Layout</span>
+                  </label>
                   {showMap && (
-                    <input
-                      type="range"
-                      min={0.1}
-                      max={1}
-                      step={0.05}
-                      value={mapOpacity}
-                      onChange={(e) => setMapOpacity(Number(e.target.value))}
-                      className="w-24 accent-blue-500"
-                      title="Map opacity"
-                    />
+                    <input type="range" min={0.1} max={1} step={0.1} value={mapOpacity} onChange={e => setMapOpacity(Number(e.target.value))} className="w-20 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
                   )}
-                </label>
+                </div>
               </div>
+
+              <div className="flex-1 space-y-4 overflow-y-auto pr-2 custom-scrollbar min-h-[400px]">
+                {ranking?.maps?.length ? ranking.maps.map((m) => (
+                  <MapResultCard
+                    key={m.map}
+                    m={m}
+                    showHeatmaps={showHeatmaps}
+                    showMap={showMap}
+                    mapOpacity={mapOpacity}
+                    heatmapOpacity={heatmapOpacity}
+                    mapLink={mapLink}
+                  />
+                )) : (
+                  <div className="h-64 flex flex-col items-center justify-center text-slate-500 border-2 border-dashed border-white/5 rounded-xl">
+                    <svg className="w-10 h-10 mb-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0121 18.382V7.618a1 1 0 01-1.447-.894L15 7m0 13V7m0 0L9 4" /></svg>
+                    <p>No results generated yet.</p>
+                    <p className="text-xs mt-1">Configure the simulation on the left and click "Run Sweep"</p>
+                  </div>
+                )}
+              </div>
+
             </div>
-
-            <div className="space-y-3">
-              {ranking?.maps?.length ? ranking.maps.map((m) => (
-                <MapResultCard
-                  key={m.map}
-                  m={m}
-                  showHeatmaps={showHeatmaps}
-                  showMap={showMap}
-                  mapOpacity={mapOpacity}
-                  heatmapOpacity={heatmapOpacity}
-                  mapLink={mapLink}
-                />
-              )) : (
-                <p className="text-sm text-slate-400">No ranking loaded yet. Run a sweep or refresh.</p>
-              )}
-            </div>
-          </section>
-        </div >
-
-
-        <section className="bg-black/40 border border-white/10 rounded-xl p-4 shadow-inner">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold">Run log</h2>
-            <button
-              className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
-              onClick={() => setRunLog("")}
-            >
-              Clear
-            </button>
           </div>
-          <pre className="text-xs bg-black/50 border border-white/5 rounded p-3 h-56 overflow-auto whitespace-pre-wrap">{runLog || "Logs will appear here after running a sweep."}</pre>
-        </section>
-      </div >
-    </main >
+
+        </div>
+      </div>
+    </main>
   );
 }
 
