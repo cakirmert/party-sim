@@ -58,10 +58,12 @@ const DEFAULT_FORM = {
   exitWidth: "10,12",
   heatmap: true,
   resultsDir: "results",
-  wFlow: 0.4,
-  wWait: 0.3,
-  wCluster: 0.2,
-  wExit: 0.1,
+  wCapacity: 0.35,
+  wUtil: 0.20,
+  wCongestion: 0.15,
+  wPath: 0.10,
+  wEvacuation: 0.15,
+  wWait: 0.05,
   // Parallel execution
   parallel: true,
   workers: DEFAULT_WORKERS,
@@ -103,10 +105,11 @@ export default function SweepLabPage() {
   }, [form.rowGap, form.barX, form.barY, form.gymX, form.gymY, form.exitWidth, form.count, form.runs]);
 
   const weightsText = useMemo(() => {
-    if (!ranking?.weights) return "";
-    return Object.entries(ranking.weights)
-      .map(([k, v]) => `${k}:${v}`)
-      .join(" ");
+    if (!ranking?.weights?.weights) return "";
+    const w = ranking.weights.weights as Record<string, number>;
+    return Object.entries(w)
+      .map(([k, v]) => `${k.charAt(0).toUpperCase() + k.slice(1)}: ${v}`)
+      .join(" · ");
   }, [ranking]);
 
   const fetchRanking = async () => {
@@ -118,6 +121,34 @@ export default function SweepLabPage() {
       setRanking(json);
     } catch (err) {
       setRunLog(prev => `${prev}\nFailed to load ranking: ${String(err)}`);
+    } finally {
+      setLoadingRank(false);
+    }
+  };
+
+  const handleUpdateScores = async () => {
+    setLoadingRank(true);
+    try {
+      if (!form.resultsDir) return;
+      await fetch("/api/sweep/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resultsDir: form.resultsDir,
+          weights: {
+            capacity: form.wCapacity,
+            utilization: form.wUtil,
+            congestion: form.wCongestion,
+            path: form.wPath,
+            evacuation: form.wEvacuation,
+            wait: form.wWait,
+          },
+        }),
+      });
+      await fetchRanking();
+    } catch (e) {
+      console.error(e);
+      setRunLog((prev) => prev + `\nError updating scores: ${e}`);
     } finally {
       setLoadingRank(false);
     }
@@ -265,6 +296,17 @@ export default function SweepLabPage() {
             <p className="text-slate-400">Tip: start small (few maps, low heatmap scale) to iterate, then scale up.</p>
           </div>
         )}
+
+        {/* Methodology Explanation - Full Width Top */}
+        <section className="bg-blue-900/10 border border-blue-500/20 rounded-xl p-4 text-sm text-slate-300">
+          <h3 className="text-blue-400 font-semibold mb-1">Scoring Methodology</h3>
+          <p className="opacity-80 mb-1">
+            Results are graded on a <strong>Bell Curve (0-100)</strong> relative to the current batch.
+          </p>
+          <p className="text-xs opacity-60">
+            Average = 50. Each component (Capacity, Util, etc.) is graded 0-100, then averaged by weight.
+          </p>
+        </section>
 
         <div className="grid md:grid-cols-5 gap-6">
           <section className="md:col-span-2 bg-white/5 border border-white/10 rounded-xl p-4 shadow-lg">
@@ -419,44 +461,56 @@ export default function SweepLabPage() {
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Weights: flow / wait" hint="Ranking weight for path length and stuck/queue penalties.">
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    step={0.05}
-                    min={0}
-                    value={form.wFlow}
-                    onChange={(e) => setForm({ ...form, wFlow: Number(e.target.value) })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
-                  />
-                  <input
-                    type="number"
-                    step={0.05}
-                    min={0}
-                    value={form.wWait}
-                    onChange={(e) => setForm({ ...form, wWait: Number(e.target.value) })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
-                  />
-                </div>
-              </Label>
-              <Label text="Weights: cluster / exit" hint="Ranking weight for congestion and exit reachability.">
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    step={0.05}
-                    min={0}
-                    value={form.wCluster}
-                    onChange={(e) => setForm({ ...form, wCluster: Number(e.target.value) })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
-                  />
-                  <input
-                    type="number"
-                    step={0.05}
-                    min={0}
-                    value={form.wExit}
-                    onChange={(e) => setForm({ ...form, wExit: Number(e.target.value) })}
-                    className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
-                  />
+              <Label text="Weights" hint="Adjust relative importance of each metric (0.0 - 1.0). Total should ideally sum to ~1.0 but is normalized.">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500 uppercase">Capacity</span>
+                    <input
+                      type="number" step={0.05} min={0} value={form.wCapacity}
+                      onChange={(e) => setForm({ ...form, wCapacity: Number(e.target.value) })}
+                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500 uppercase">Utilization</span>
+                    <input
+                      type="number" step={0.05} min={0} value={form.wUtil}
+                      onChange={(e) => setForm({ ...form, wUtil: Number(e.target.value) })}
+                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500 uppercase">Congestion</span>
+                    <input
+                      type="number" step={0.05} min={0} value={form.wCongestion}
+                      onChange={(e) => setForm({ ...form, wCongestion: Number(e.target.value) })}
+                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500 uppercase">Path</span>
+                    <input
+                      type="number" step={0.05} min={0} value={form.wPath}
+                      onChange={(e) => setForm({ ...form, wPath: Number(e.target.value) })}
+                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500 uppercase">Evacuation</span>
+                    <input
+                      type="number" step={0.05} min={0} value={form.wEvacuation}
+                      onChange={(e) => setForm({ ...form, wEvacuation: Number(e.target.value) })}
+                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500 uppercase">Wait</span>
+                    <input
+                      type="number" step={0.05} min={0} value={form.wWait}
+                      onChange={(e) => setForm({ ...form, wWait: Number(e.target.value) })}
+                      className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                    />
+                  </div>
                 </div>
               </Label>
               <Label text="Parallel workers" hint="Number of CPU cores to use for parallel simulation. More workers = faster but uses more RAM (~100MB each).">
@@ -527,6 +581,13 @@ export default function SweepLabPage() {
                 {running ? "Running…" : "Run sweep"}
               </button>
               <button
+                onClick={handleUpdateScores}
+                className="px-3 py-2 rounded bg-blue-500/20 border border-blue-500/30 hover:bg-blue-500/30 text-blue-200 text-sm"
+                disabled={loadingRank}
+              >
+                Update Scores
+              </button>
+              <button
                 onClick={fetchRanking}
                 className="px-3 py-2 rounded bg-white/10 border border-white/10 hover:bg-white/20 text-sm"
                 disabled={loadingRank}
@@ -547,56 +608,60 @@ export default function SweepLabPage() {
             </div>
           </section>
 
+          {/* Methodology moved to top */}
+
           <section className="md:col-span-3 bg-white/5 border border-white/10 rounded-xl p-4 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="text-lg font-semibold">Top maps</h2>
-                <p className="text-xs text-slate-400">
-                  {ranking?.generatedAt ? `Last analyzed: ${new Date(ranking.generatedAt).toLocaleString()}` : "Load a ranking to view results."}
-                  {weightsText ? ` · Weights ${weightsText}` : ""}
+            <div className="mb-3">
+              <h2 className="text-lg font-semibold">Top maps</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                {ranking?.generatedAt ? `Last analyzed: ${new Date(ranking.generatedAt).toLocaleString()}` : "Load a ranking to view results."}
+              </p>
+              {weightsText && (
+                <p className="text-[10px] text-slate-500 mt-1 break-all max-w-full">
+                  Current weights: <span className="text-slate-400 font-mono">{weightsText}</span>
                 </p>
+              )}
+            </div>
+            <div className="flex items-center gap-3 text-sm">
+              <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                <LegendSwatch color="#fde68a" label="Bar" />
+                <LegendSwatch color="#a7f3d0" label="Gym" />
+                <LegendSwatch color="#dbeafe" label="Corridor" />
+                <LegendSwatch color="#e0e7ff" label="Room" />
+                <LegendSwatch color="#fca5a5" label="Exit" />
               </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                  <LegendSwatch color="#fde68a" label="Bar" />
-                  <LegendSwatch color="#a7f3d0" label="Gym" />
-                  <LegendSwatch color="#dbeafe" label="Corridor" />
-                  <LegendSwatch color="#e0e7ff" label="Room" />
-                  <LegendSwatch color="#fca5a5" label="Exit" />
-                </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={showHeatmaps} onChange={(e) => setShowHeatmaps(e.target.checked)} />
-                  Show heatmaps
-                  {showHeatmaps && (
-                    <input
-                      type="range"
-                      min={0.1}
-                      max={1}
-                      step={0.05}
-                      value={heatmapOpacity}
-                      onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
-                      className="w-24"
-                      title="Heatmap opacity"
-                    />
-                  )}
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={showMap} onChange={(e) => setShowMap(e.target.checked)} />
-                  Show map
-                  {showMap && (
-                    <input
-                      type="range"
-                      min={0.1}
-                      max={1}
-                      step={0.05}
-                      value={mapOpacity}
-                      onChange={(e) => setMapOpacity(Number(e.target.value))}
-                      className="w-24"
-                      title="Map opacity"
-                    />
-                  )}
-                </label>
-              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={showHeatmaps} onChange={(e) => setShowHeatmaps(e.target.checked)} />
+                Show heatmaps
+                {showHeatmaps && (
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={heatmapOpacity}
+                    onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
+                    className="w-24"
+                    title="Heatmap opacity"
+                  />
+                )}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={showMap} onChange={(e) => setShowMap(e.target.checked)} />
+                Show map
+                {showMap && (
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={mapOpacity}
+                    onChange={(e) => setMapOpacity(Number(e.target.value))}
+                    className="w-24"
+                    title="Map opacity"
+                  />
+                )}
+              </label>
             </div>
 
             <div className="space-y-3">
@@ -629,8 +694,8 @@ export default function SweepLabPage() {
           </div>
           <pre className="text-xs bg-black/50 border border-white/5 rounded p-3 h-56 overflow-auto whitespace-pre-wrap">{runLog || "Logs will appear here after running a sweep."}</pre>
         </section>
-      </div>
-    </main>
+      </div >
+    </main >
   );
 }
 

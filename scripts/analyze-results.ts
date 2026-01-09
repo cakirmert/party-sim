@@ -1,6 +1,14 @@
 import { promises as fs } from "node:fs";
 import { relative, resolve } from "node:path";
-import { directCliRun, ensureDir, parseArgv, writeJson, slugify } from "./pipeline-utils";
+import {
+  directCliRun,
+  ensureDir,
+  parseArgv,
+  writeJson,
+  slugify,
+  readJson,
+  listJsonFiles
+} from "./shared-utils";
 
 type Scenario = "weekday" | "weekend";
 
@@ -160,29 +168,56 @@ function aggregateRuns(runs: RunOutput[]): Aggregated[] {
       // We need to resolve the path. 
       // The best way is to infer it: slugify(seed).json in the scenario dir.
       // Let's attach a 'runFile' property to the aggregate.
-      runPath: `${slugify(map)}/${list[0].scenario}/run-${slugify(list[0].seed)}.json`,
+      // Use the actual file path if available to construct the relative URL path
+      runPath: list[0].meta?.filePath
+        ? relative(process.cwd(), list[0].meta.filePath as string).split("\\").join("/")
+        : `${slugify(map)}/${list[0].scenario}/run-${slugify(list[0].seed)}.json`,
     });
   }
 
   return aggregates;
 }
 
+// Helper to compute statistics
+function getStats(values: number[]) {
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+  const stdDev = Math.sqrt(variance) || 1e-9; // Avoid div by zero
+  return { mean, stdDev };
+}
+
+// Z-Score normalization
+function normalizeZ(val: number, mean: number, std: number, lowerIsBetter: boolean): number {
+  if (lowerIsBetter) {
+    return (mean - val) / std;
+  }
+  return (val - mean) / std;
+}
+
 function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
   if (items.length === 0) return items;
 
-  // 1. Collect all raw metrics to find ranges
+  // 1. Collect all raw metrics
   const capacityVals = items.map(i => i.metrics.roomCapacity || i.metrics.actualAgents);
   const barVals = items.map(i => i.metrics.barOccupancyRatio);
   const gymVals = items.map(i => i.metrics.gymOccupancyRatio);
-  // Congestion: use p95 for robust peak measuring
   const congestionVals = items.map(i => i.metrics.corridorP95);
   const pathVals = items.map(i => i.metrics.avgPathLength);
   const evacRateVals = items.map(i => (i.metrics as any).evacuationRate || 0);
-  const evacTimeVals = items.map(i => (i.metrics as any).avgExitTime || 9999); // lower is better
+  const evacTimeVals = items.map(i => (i.metrics as any).avgExitTime || 9999);
   const stuckVals = items.map(i => i.metrics.stuckRate);
 
+  // Stats
+  const sCap = getStats(capacityVals);
+  const sBar = getStats(barVals);
+  const sGym = getStats(gymVals);
+  const sCong = getStats(congestionVals);
+  const sPath = getStats(pathVals);
+  const sEvRate = getStats(evacRateVals);
+  const sEvTime = getStats(evacTimeVals);
+  const sStuck = getStats(stuckVals);
+
   // Default weights matching notes.md
-  // capacity=35%, utilization=20%, congestion=15%, path=10%, evacuation=15%, wait=5%
   const w = cfg.weights || {
     capacity: 0.35,
     utilization: 0.20,
@@ -195,56 +230,64 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
   for (const item of items) {
     const m = item.metrics;
 
-    // 2. Normalize each metric relative to the BATCH (0..1)
-    // Capacity: Higher is better
-    const sCap = normalizeHigher(capacityVals, m.roomCapacity || m.actualAgents);
+    // 2. Compute 0-100 Score for each Metric (Bell Curve grading)
+    // Formula: 50 + (Z * 15), clamped to [0, 100]
 
-    // Utilization: Lower is better (closer to 0 occupancy ratio is "less crowded"?? 
-    // Actually, user said 0.043 is "winning" but that seems low. 
-    // Usually utilization we want balanced? 
-    // Wait, the previous logic said "ideal < 0.8". 
-    // Let's assume for now that "Lower Over-Capacity" is better.
-    // Or closer to a target? 
-    // Let's stick to: Lower Occupancy Ratio is BETTER (less crowded). 
-    // If that changes, we can flip it.
-    const sBar = normalizeLower(barVals, m.barOccupancyRatio);
-    const sGym = normalizeLower(gymVals, m.gymOccupancyRatio);
-    const sUtil = (sBar + sGym) / 2;
+    // Capacity
+    const zCap = normalizeZ(m.roomCapacity || m.actualAgents, sCap.mean, sCap.stdDev, false);
+    const scoreCap = Math.max(0, Math.min(100, 50 + zCap * 15));
 
-    // Congestion: Lower P95 density is better
-    const sCongestion = normalizeLower(congestionVals, m.corridorP95);
+    // Utilization (Bar & Gym)
+    const zBar = normalizeZ(m.barOccupancyRatio, sBar.mean, sBar.stdDev, true);
+    const scoreBar = Math.max(0, Math.min(100, 50 + zBar * 15));
 
-    // Path: Lower average path length is better
-    const sPath = normalizeLower(pathVals, m.avgPathLength);
+    const zGym = normalizeZ(m.gymOccupancyRatio, sGym.mean, sGym.stdDev, true);
+    const scoreGym = Math.max(0, Math.min(100, 50 + zGym * 15));
 
-    // Evacuation: Higher rate is better, Lower time is better
-    const sEvacRate = normalizeHigher(evacRateVals, (m as any).evacuationRate || 0);
-    const sEvacTime = normalizeLower(evacTimeVals, (m as any).avgExitTime || 0);
-    const sEvac = sEvacRate * 0.6 + sEvacTime * 0.4;
+    const scoreUtil = (scoreBar + scoreGym) / 2;
 
-    // Stuck (Wait): Lower stuck rate is better
-    const sWait = normalizeLower(stuckVals, m.stuckRate);
+    // Congestion
+    const zCong = normalizeZ(m.corridorP95, sCong.mean, sCong.stdDev, true);
+    const scoreCong = Math.max(0, Math.min(100, 50 + zCong * 15));
 
-    // 3. Weighted Sum (0..1)
-    const rawScore =
-      sCap * w.capacity +
-      sUtil * w.utilization +
-      sCongestion * w.congestion +
-      sPath * w.path +
-      sEvac * w.evacuation +
-      sWait * w.wait;
+    // Path
+    const zPath = normalizeZ(m.avgPathLength, sPath.mean, sPath.stdDev, true);
+    const scorePath = Math.max(0, Math.min(100, 50 + zPath * 15));
 
-    // 4. Scale to 0..100 for readability
-    item.score = Number((rawScore * 100).toFixed(1));
+    // Evacuation
+    const zEvRate = normalizeZ((m as any).evacuationRate || 0, sEvRate.mean, sEvRate.stdDev, false);
+    const scoreEvRate = Math.max(0, Math.min(100, 50 + zEvRate * 15));
 
-    // 5. Compute Breakdown (Points contributed by each category)
+    const zEvTime = normalizeZ((m as any).avgExitTime || 0, sEvTime.mean, sEvTime.stdDev, true);
+    const scoreEvTime = Math.max(0, Math.min(100, 50 + zEvTime * 15));
+
+    const scoreEvac = scoreEvRate * 0.6 + scoreEvTime * 0.4;
+
+    // Wait/Stuck
+    const zStuck = normalizeZ(m.stuckRate, sStuck.mean, sStuck.stdDev, true);
+    const scoreStuck = Math.max(0, Math.min(100, 50 + zStuck * 15));
+
+    // 3. Weighted Average of Component Scores
+    const totalWeight = w.capacity + w.utilization + w.congestion + w.path + w.evacuation + w.wait;
+    const finalScore = (
+      scoreCap * w.capacity +
+      scoreUtil * w.utilization +
+      scoreCong * w.congestion +
+      scorePath * w.path +
+      scoreEvac * w.evacuation +
+      scoreStuck * w.wait
+    ) / totalWeight;
+
+    item.score = Number(finalScore.toFixed(1));
+
+    // 5. Breakdown (Store the 0-100 score for each component)
     item.scoreBreakdown = {
-      capacity: Number((sCap * w.capacity * 100).toFixed(1)),
-      utilization: Number((sUtil * w.utilization * 100).toFixed(1)),
-      congestion: Number((sCongestion * w.congestion * 100).toFixed(1)),
-      path: Number((sPath * w.path * 100).toFixed(1)),
-      evacuation: Number((sEvac * w.evacuation * 100).toFixed(1)),
-      wait: Number((sWait * w.wait * 100).toFixed(1)),
+      capacity: Number(scoreCap.toFixed(1)),
+      utilization: Number(scoreUtil.toFixed(1)),
+      congestion: Number(scoreCong.toFixed(1)),
+      path: Number(scorePath.toFixed(1)),
+      evacuation: Number(scoreEvac.toFixed(1)),
+      wait: Number(scoreStuck.toFixed(1)),
     };
   }
 
@@ -333,6 +376,9 @@ export async function analyzeResults(resultsDir: string, outDir: string, weights
     const raw = await fs.readFile(file, "utf8");
     try {
       const parsed = JSON.parse(raw) as RunOutput;
+      // Attach source file path for correct API URL generation
+      parsed.meta = parsed.meta || {};
+      parsed.meta.filePath = file;
       runs.push(parsed);
     } catch (e) {
       // eslint-disable-next-line no-console

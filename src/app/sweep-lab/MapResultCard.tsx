@@ -2,12 +2,20 @@ import React from "react";
 import MapPreview from "@/components/MapPreview";
 
 // Helper for metrics
-const Metric = ({ label, value }: { label: string; value?: number | string }) => (
+// Helper for metrics
+const Metric = ({ label, value, score }: { label: string; value?: number | string; score?: number }) => (
     <div className="flex flex-col">
         <span className="text-[10px] uppercase tracking-wider text-slate-500">{label}</span>
-        <span className="font-mono">
-            {typeof value === 'number' ? value.toFixed(3) : (value ?? "-")}
-        </span>
+        <div className="flex items-baseline gap-1">
+            <span className="font-mono">
+                {typeof value === 'number' ? value.toFixed(3) : (value ?? "-")}
+            </span>
+            {score !== undefined && (
+                <span className={`text-[10px] ${score >= 50 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    ({score})
+                </span>
+            )}
+        </div>
     </div>
 );
 
@@ -88,14 +96,14 @@ export default function MapResultCard({ m, showHeatmaps, showMap, mapOpacity, he
             )}
 
             <div className="grid md:grid-cols-4 gap-2 text-xs text-slate-300">
-                <Metric label="Path" value={m.metrics?.avgPathLength} />
-                <Metric label="Peak Density" value={m.metrics?.corridorPeakDensity} />
+                <Metric label="Path" value={m.metrics?.avgPathLength} score={m.scoreBreakdown?.path} />
+                <Metric label="Peak Density" value={m.metrics?.corridorPeakDensity} score={m.scoreBreakdown?.congestion} />
                 <Metric label="Avg Density" value={m.metrics?.corridorMeanDensity} />
-                <Metric label="Evac Time" value={typeof (m.metrics as any).avgExitTime === 'number' ? Math.round((m.metrics as any).avgExitTime) : '-'} />
+                <Metric label="Evac Time" value={typeof (m.metrics as any).avgExitTime === 'number' ? Math.round((m.metrics as any).avgExitTime) : '-'} score={m.scoreBreakdown?.evacuation} />
             </div>
             <div className="grid md:grid-cols-4 gap-2 text-xs text-slate-300">
-                <Metric label="Stuck %" value={((m.metrics?.stuckRate || 0) * 100).toFixed(2) + '%'} />
-                <Metric label="Bar Util" value={m.metrics?.barOccupancyRatio} />
+                <Metric label="Stuck %" value={((m.metrics?.stuckRate || 0) * 100).toFixed(2) + '%'} score={m.scoreBreakdown?.wait} />
+                <Metric label="Bar Util" value={m.metrics?.barOccupancyRatio} score={m.scoreBreakdown?.utilization} />
                 <Metric label="Gym Util" value={m.metrics?.gymOccupancyRatio} />
                 <Metric label="Evac Rate" value={((m.metrics as any).evacuationRate || 0).toFixed(2)} />
             </div>
