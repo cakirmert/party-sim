@@ -17,7 +17,11 @@ type SweepRequest = {
   minutes?: number;
   seed?: string;
   barSize?: string;
+  barX?: string;
+  barY?: string;
   gymSize?: string;
+  gymX?: string;
+  gymY?: string;
   exitWidth?: string;
   rowGap?: string;
   resultsDir?: string;
@@ -29,6 +33,8 @@ type SweepRequest = {
   // Parallel execution options
   parallel?: boolean;
   workers?: number;
+  // Top-K filtering (only save top K maps)
+  topK?: number;
 };
 
 export async function POST(req: Request) {
@@ -50,7 +56,7 @@ export async function POST(req: Request) {
     `--outside ${FIXED_OUTSIDE_HEIGHT}`,
     `--heatmapScale ${FIXED_HEATMAP_SCALE}`,
   ];
-  
+
   // Parallel execution (default: enabled)
   const parallel = body.parallel !== false;
   const workers = body.workers ?? DEFAULT_WORKERS;
@@ -58,8 +64,15 @@ export async function POST(req: Request) {
   args.push(`--workers ${workers}`);
 
   if (body.seed) args.push(`--seed ${body.seed}`);
+  // Support both legacy size list or new split X/Y
   if (body.barSize) args.push(`--barSize ${body.barSize}`);
+  if (body.barX) args.push(`--barX ${body.barX}`);
+  if (body.barY) args.push(`--barY ${body.barY}`);
+
   if (body.gymSize) args.push(`--gymSize ${body.gymSize}`);
+  if (body.gymX) args.push(`--gymX ${body.gymX}`);
+  if (body.gymY) args.push(`--gymY ${body.gymY}`);
+
   if (body.exitWidth) args.push(`--exitWidth ${body.exitWidth}`);
   if (body.rowGap) args.push(`--rowGap ${body.rowGap}`);
   if (body.resultsDir) args.push(`--results ${body.resultsDir}`);
@@ -67,6 +80,7 @@ export async function POST(req: Request) {
   if (typeof body.wWait === "number") args.push(`--w-wait ${body.wWait}`);
   if (typeof body.wCluster === "number") args.push(`--w-cluster ${body.wCluster}`);
   if (typeof body.wExit === "number") args.push(`--w-exit ${body.wExit}`);
+  if (typeof body.topK === "number" && body.topK > 0) args.push(`--top-k ${body.topK}`);
   args.push(`--heatmap ${body.heatmap === false ? "false" : "true"}`);
 
   const cmd = `npm ${args.join(" ")}`;

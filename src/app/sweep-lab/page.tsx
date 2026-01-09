@@ -9,6 +9,7 @@ import {
   calculateVariationCount,
   DEFAULT_PARAMETER_RANGES,
 } from "@/lib/mapgen/runtime";
+import MapResultCard from "./MapResultCard";
 
 type MapRow = {
   map: string;
@@ -47,12 +48,13 @@ const DEFAULT_WORKERS = typeof navigator !== "undefined" ? Math.max(1, (navigato
 const DEFAULT_FORM = {
   count: 32,
   runs: 1,
-  agents: "80,100,120",
   minutes: 960, // 16 hours: 6am to 10pm
   seed: "ui-seed",
   rowGap: "2,3",
-  barSize: "14x5,16x6,18x7",
-  gymSize: "8x4,10x5,12x6",
+  barX: "14,16",
+  barY: "5,6",
+  gymX: "8,10",
+  gymY: "4,5",
   exitWidth: "10,12",
   heatmap: true,
   resultsDir: "results",
@@ -63,6 +65,8 @@ const DEFAULT_FORM = {
   // Parallel execution
   parallel: true,
   workers: DEFAULT_WORKERS,
+  // Top-K filtering (only save top K maps to reduce file I/O)
+  topK: 10,
 };
 
 export default function SweepLabPage() {
@@ -80,26 +84,23 @@ export default function SweepLabPage() {
   const [mapPreviews, setMapPreviews] = useState<Record<string, string>>({});
   const [showInfo, setShowInfo] = useState(false);
 
-  // Parse agents CSV to array of numbers
-  const agentCounts = useMemo(() => {
-    return form.agents.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
-  }, [form.agents]);
-
   // Calculate variation count from current form parameters
   const variationInfo = useMemo(() => {
     const ranges = buildRangesFromForm({
       rowGap: form.rowGap,
-      barSize: form.barSize,
-      gymSize: form.gymSize,
+      barX: form.barX,
+      barY: form.barY,
+      gymX: form.gymX,
+      gymY: form.gymY,
       exitWidth: form.exitWidth,
     });
     const total = calculateVariationCount(ranges);
     const mapsToGenerate = Math.min(total, form.count);
-    // 2 scenarios (weekday + weekend) * runs per map * agent counts
-    const agentVariants = agentCounts.length || 1;
-    const totalSimulations = mapsToGenerate * 2 * Math.max(1, form.runs) * agentVariants;
-    return { total, mapsToGenerate, totalSimulations, ranges, agentVariants };
-  }, [form, agentCounts]);
+    // 2 scenarios (weekday + weekend) * runs per map * 1 agent config (max capacity)
+    const totalSimulations = mapsToGenerate * 2 * Math.max(1, form.runs);
+
+    return { total, mapsToGenerate, totalSimulations, ranges, agentVariants: 1 };
+  }, [form.rowGap, form.barX, form.barY, form.gymX, form.gymY, form.exitWidth, form.count, form.runs]);
 
   const weightsText = useMemo(() => {
     if (!ranking?.weights) return "";
@@ -123,7 +124,7 @@ export default function SweepLabPage() {
   };
 
   useEffect(() => {
-    fetchRanking().catch(() => {});
+    fetchRanking().catch(() => { });
   }, []);
 
   const formatTime = (ms: number) => {
@@ -142,9 +143,9 @@ export default function SweepLabPage() {
     setProgress(0);
     setProgressInfo(null);
     setRunLog("Starting sweep...\n");
-    
+
     const totalExpected = variationInfo.totalSimulations;
-    
+
     const pollTimer = setInterval(async () => {
       try {
         const res = await fetch(
@@ -156,7 +157,7 @@ export default function SweepLabPage() {
           setProgressInfo(data);
           const pct = Math.round((data.progress || 0) * 100);
           setProgress(Math.min(99, pct)); // Cap at 99% until complete
-          
+
           // Update log with progress
           if (data.currentMap) {
             setRunLog(prev => {
@@ -202,31 +203,28 @@ export default function SweepLabPage() {
   };
 
   const mapLink = (mapFile?: string) => {
-    if (!mapFile) return null;
+    if (!mapFile) return undefined;
     return `/api/sweep/map?path=${encodeURIComponent(mapFile)}`;
   };
 
-  useEffect(() => {
-    const loadPreviews = async () => {
-      if (!ranking?.maps?.length) return;
-      const entries = await Promise.all(ranking.maps.map(async (m) => {
-        const href = mapLink(m.mapFile);
-        if (!href || mapPreviews[m.map]) return [m.map, mapPreviews[m.map]] as const;
-        try {
-          const preview = await renderMapPreview(href);
-          return [m.map, preview] as const;
-        } catch {
-          return [m.map, undefined] as const;
-        }
-      }));
-      const next: Record<string, string> = {};
-      for (const [key, val] of entries) {
-        if (val) next[key] = val;
+  const handleCleanup = async () => {
+    if (!confirm("Are you sure you want to delete all results and generated maps?")) return;
+    try {
+      const res = await fetch("/api/sweep/cleanup", { method: "POST" });
+      const json = await res.json();
+      if (res.ok) {
+        setRunLog(prev => `${prev}\n✓ Cleanup successful: ${json.message}`);
+        setRanking(null);
+        setProgressInfo(null);
+      } else {
+        throw new Error(json.error || "Cleanup failed");
       }
-      if (Object.keys(next).length) setMapPreviews((prev) => ({ ...prev, ...next }));
-    };
-    loadPreviews().catch(() => {});
-  }, [ranking]);
+    } catch (err) {
+      setRunLog(prev => `${prev}\n✗ Error: ${String(err)}`);
+    }
+  };
+
+  // Map preview effect removed as we now use dynamic CanvasRenderer in MapResultCard
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-100">
@@ -280,7 +278,7 @@ export default function SweepLabPage() {
                 Reset defaults
               </button>
             </div>
-            
+
             {/* Variation count display */}
             <div className="mb-3 p-3 rounded-lg bg-slate-800/50 border border-white/10">
               <div className="flex items-center justify-between text-sm flex-wrap gap-2">
@@ -333,7 +331,7 @@ export default function SweepLabPage() {
                 </div>
               </div>
             )}
-            
+
             <div className="grid grid-cols-2 gap-3 text-sm">
               <Label text="Max maps" hint={`Limit maps to generate (max ${variationInfo.total} possible).`}>
                 <input
@@ -355,14 +353,7 @@ export default function SweepLabPage() {
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Agents" hint="CSV of agent counts to test (e.g., 80,100,120). Each count creates a separate simulation.">
-                <input
-                  type="text"
-                  value={form.agents}
-                  onChange={(e) => setForm({ ...form, agents: e.target.value })}
-                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
-                />
-              </Label>
+              {/* Agents input removed - auto-calculated */}
               <Label text="Sim minutes" hint="In-game minutes to run per seed (e.g., 720 = half-day).">
                 <input
                   type="number"
@@ -396,19 +387,35 @@ export default function SweepLabPage() {
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Bar sizes" hint="CSV of WxH for bar area (e.g., 14x5,16x6,18x7).">
+              <Label text="Bar Widths" hint="CSV of X dimensions for bar area (e.g., 14,16,18).">
                 <input
                   type="text"
-                  value={form.barSize}
-                  onChange={(e) => setForm({ ...form, barSize: e.target.value })}
+                  value={form.barX}
+                  onChange={(e) => setForm({ ...form, barX: e.target.value })}
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
-              <Label text="Gym sizes" hint="CSV of WxH for gym area (e.g., 8x4,10x5,12x6).">
+              <Label text="Bar Heights" hint="CSV of Y dimensions for bar area (e.g., 5,6,7).">
                 <input
                   type="text"
-                  value={form.gymSize}
-                  onChange={(e) => setForm({ ...form, gymSize: e.target.value })}
+                  value={form.barY}
+                  onChange={(e) => setForm({ ...form, barY: e.target.value })}
+                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                />
+              </Label>
+              <Label text="Gym Widths" hint="CSV of X dimensions for gym area (e.g., 8,10,12).">
+                <input
+                  type="text"
+                  value={form.gymX}
+                  onChange={(e) => setForm({ ...form, gymX: e.target.value })}
+                  className="bg-slate-900 border border-white/10 rounded px-2 py-1"
+                />
+              </Label>
+              <Label text="Gym Heights" hint="CSV of Y dimensions for gym area (e.g., 4,5,6).">
+                <input
+                  type="text"
+                  value={form.gymY}
+                  onChange={(e) => setForm({ ...form, gymY: e.target.value })}
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1"
                 />
               </Label>
@@ -462,6 +469,16 @@ export default function SweepLabPage() {
                   className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
                 />
               </Label>
+              <Label text="Top-K results" hint="Only save the top K maps to reduce file I/O. Set to 0 to save all.">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form.topK}
+                  onChange={(e) => setForm({ ...form, topK: Math.max(0, Number(e.target.value)) })}
+                  className="bg-slate-900 border border-white/10 rounded px-2 py-1 w-20"
+                />
+              </Label>
               <div className="flex flex-col gap-2">
                 <label className="flex items-center gap-2">
                   <input
@@ -481,7 +498,7 @@ export default function SweepLabPage() {
                 </label>
               </div>
             </div>
-            
+
             {/* Performance estimate */}
             <div className="mt-3 p-2 rounded bg-slate-800/50 border border-white/10 text-xs text-slate-400">
               <span className="font-medium text-slate-300">Estimated time: </span>
@@ -500,7 +517,7 @@ export default function SweepLabPage() {
                 {variationInfo.totalSimulations > 500 && <span className="text-amber-400"> • Large sweep - consider running overnight</span>}
               </span>
             </div>
-            
+
             <div className="mt-3 flex gap-2">
               <button
                 onClick={handleRun}
@@ -516,6 +533,12 @@ export default function SweepLabPage() {
               >
                 {loadingRank ? "Refreshing…" : "Refresh ranking"}
               </button>
+              <button
+                onClick={handleCleanup}
+                className="px-3 py-2 rounded bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-200 text-sm"
+              >
+                Cleanup
+              </button>
             </div>
             <div className="mt-3">
               <p className="text-xs text-slate-400">
@@ -525,150 +548,68 @@ export default function SweepLabPage() {
           </section>
 
           <section className="md:col-span-3 bg-white/5 border border-white/10 rounded-xl p-4 shadow-lg">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h2 className="text-lg font-semibold">Top maps</h2>
-                  <p className="text-xs text-slate-400">
-                    {ranking?.generatedAt ? `Last analyzed: ${new Date(ranking.generatedAt).toLocaleString()}` : "Load a ranking to view results."}
-                    {weightsText ? ` · Weights ${weightsText}` : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3 text-sm">
-                  <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                    <LegendSwatch color="#fde68a" label="Bar" />
-                    <LegendSwatch color="#a7f3d0" label="Gym" />
-                    <LegendSwatch color="#dbeafe" label="Corridor" />
-                    <LegendSwatch color="#e0e7ff" label="Room" />
-                    <LegendSwatch color="#fca5a5" label="Exit" />
-                  </div>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={showHeatmaps} onChange={(e) => setShowHeatmaps(e.target.checked)} />
-                    Show heatmaps
-                    {showHeatmaps && (
-                      <input
-                        type="range"
-                        min={0.1}
-                        max={1}
-                        step={0.05}
-                        value={heatmapOpacity}
-                        onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
-                        className="w-24"
-                        title="Heatmap opacity"
-                      />
-                    )}
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={showMap} onChange={(e) => setShowMap(e.target.checked)} />
-                    Show map
-                    {showMap && (
-                      <input
-                        type="range"
-                        min={0.1}
-                        max={1}
-                        step={0.05}
-                        value={mapOpacity}
-                        onChange={(e) => setMapOpacity(Number(e.target.value))}
-                        className="w-24"
-                        title="Map opacity"
-                      />
-                    )}
-                  </label>
-                </div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="text-lg font-semibold">Top maps</h2>
+                <p className="text-xs text-slate-400">
+                  {ranking?.generatedAt ? `Last analyzed: ${new Date(ranking.generatedAt).toLocaleString()}` : "Load a ranking to view results."}
+                  {weightsText ? ` · Weights ${weightsText}` : ""}
+                </p>
               </div>
+              <div className="flex items-center gap-3 text-sm">
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <LegendSwatch color="#fde68a" label="Bar" />
+                  <LegendSwatch color="#a7f3d0" label="Gym" />
+                  <LegendSwatch color="#dbeafe" label="Corridor" />
+                  <LegendSwatch color="#e0e7ff" label="Room" />
+                  <LegendSwatch color="#fca5a5" label="Exit" />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={showHeatmaps} onChange={(e) => setShowHeatmaps(e.target.checked)} />
+                  Show heatmaps
+                  {showHeatmaps && (
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={1}
+                      step={0.05}
+                      value={heatmapOpacity}
+                      onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
+                      className="w-24"
+                      title="Heatmap opacity"
+                    />
+                  )}
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={showMap} onChange={(e) => setShowMap(e.target.checked)} />
+                  Show map
+                  {showMap && (
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={1}
+                      step={0.05}
+                      value={mapOpacity}
+                      onChange={(e) => setMapOpacity(Number(e.target.value))}
+                      className="w-24"
+                      title="Map opacity"
+                    />
+                  )}
+                </label>
+              </div>
+            </div>
 
             <div className="space-y-3">
               {ranking?.maps?.length ? ranking.maps.map((m) => (
-                <div key={m.map} className="rounded-lg border border-white/10 bg-white/5 p-3 flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="px-2 py-1 rounded bg-white/10 text-xs">#{m.rank}</span>
-                      <div>
-                        <p className="font-semibold text-lg">{m.map}</p>
-                        <p className="text-xs text-slate-400">Score {m.score.toFixed(3)}</p>
-                      </div>
-                    </div>
-                    {mapLink(m.mapFile) && (
-                      <a
-                        href={mapLink(m.mapFile) ?? "#"}
-                        className="text-xs text-blue-300 hover:underline"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        View map JSON
-                      </a>
-                    )}
-                    {mapLink(m.mapFile) && (
-                      <a
-                        href={`/?map=${encodeURIComponent(mapLink(m.mapFile)!)}`}
-                        className="text-xs text-emerald-300 hover:underline ml-3"
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={() => {
-                          if (typeof window !== "undefined") {
-                            window.localStorage.setItem("simMapPath", mapLink(m.mapFile)!);
-                          }
-                        }}
-                      >
-                        Watch in sim
-                      </a>
-                    )}
-                  </div>
-                  <div className="grid md:grid-cols-4 gap-2 text-xs text-slate-300">
-                    <Metric label="Path" value={m.metrics?.avgPathLength} />
-                    <Metric label="Peak corridor" value={m.metrics?.corridorPeakDensity} />
-                    <Metric label="Mean corridor" value={m.metrics?.corridorMeanDensity} />
-                    <Metric label="Exit ok" value={m.metrics?.exitSuccess} />
-                  </div>
-                  <div className="grid md:grid-cols-4 gap-2 text-xs text-slate-300">
-                    <Metric label="Stuck rate" value={m.metrics?.stuckRate} />
-                    <Metric label="Bar occ" value={m.metrics?.barOccupancyRatio} />
-                    <Metric label="Gym occ" value={m.metrics?.gymOccupancyRatio} />
-                    <Metric label="Mean occ" value={m.metrics?.meanOccupancy} />
-                  </div>
-                  {m.params && (
-                    <details className="text-xs text-slate-400">
-                      <summary className="cursor-pointer text-slate-200">Params</summary>
-                      <pre className="mt-1 bg-slate-900/70 border border-white/10 rounded p-2 overflow-auto max-h-40">{JSON.stringify(m.params, null, 2)}</pre>
-                    </details>
-                  )}
-                  {(showHeatmaps || showMap) && (
-                    <div className="mt-1 rounded overflow-hidden border border-white/10 bg-black/30 relative min-h-[120px]">
-                      {showMap && mapPreviews[m.map] && (
-                        <img
-                          src={mapPreviews[m.map]}
-                          alt={`${m.map} map`}
-                          className="w-full object-contain"
-                          style={{ imageRendering: "pixelated" as React.CSSProperties["imageRendering"], opacity: mapOpacity }}
-                        />
-                      )}
-                      {showHeatmaps && m.heatmap ? (
-                        <img
-                          src={m.heatmap}
-                          alt={`${m.map} heatmap`}
-                          className="w-full object-contain mix-blend-screen absolute inset-0"
-                          style={{ opacity: heatmapOpacity }}
-                        />
-                      ) : showHeatmaps && !m.heatmap ? (
-                        <div className="absolute inset-0 flex items-center justify-center bg-slate-800/50">
-                          <span className="text-xs text-slate-500 px-2 py-1 rounded bg-slate-900/50">
-                            Heatmap not available
-                          </span>
-                        </div>
-                      ) : null}
-                      <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-transparent to-black/20" />
-                      {m.heatmapPath && (
-                        <a
-                          href={`/api/sweep/ranking/heatmap?path=${encodeURIComponent(m.heatmapPath)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="absolute bottom-2 right-2 text-[11px] text-blue-200 bg-black/50 px-2 py-1 rounded border border-white/10"
-                        >
-                          Open heatmap
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <MapResultCard
+                  key={m.map}
+                  m={m}
+                  showHeatmaps={showHeatmaps}
+                  showMap={showMap}
+                  mapOpacity={mapOpacity}
+                  heatmapOpacity={heatmapOpacity}
+                  mapLink={mapLink}
+                />
               )) : (
                 <p className="text-sm text-slate-400">No ranking loaded yet. Run a sweep or refresh.</p>
               )}

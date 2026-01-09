@@ -66,14 +66,20 @@ function getCachedDerived(map: BaseSpecFile, mapPath: string, agentCount: number
 
 parentPort.on("message", async (task: WorkerTask<SimulationTask>) => {
   const { id, data } = task;
-  
+
   try {
     // Get cached map and derived data
     const map = await getCachedMap(data.mapPath);
     const derived = getCachedDerived(map, data.mapPath, data.agentCount, data.tickRate);
-    
-    const result = await runSimulationTask(data, map, derived);
-    
+
+    const result = await runSimulationTask(data, map, derived, (ticks) => {
+      parentPort?.postMessage({
+        id,
+        type: "progress",
+        ticks,
+      });
+    });
+
     const response: WorkerResult<SimulationResult> = {
       id,
       result,

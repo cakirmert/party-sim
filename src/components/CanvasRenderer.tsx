@@ -11,6 +11,7 @@ import { buildSpecRuntime, DEFAULT_RUNTIME_PARAMS, type VariantParams as Runtime
 type Props = {
   engineRef: React.MutableRefObject<Engine | null>;
   variant?: "sim" | "editor";
+  mapUrl?: string; // Optional external map URL
 };
 
 type BaseSpecFile = {
@@ -21,7 +22,7 @@ type BaseSpecFile = {
 
 type PaintTool = "wall" | "slow" | "erase" | "tag";
 
-export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
+export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: propMapUrl }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const miniCanvasRef = useRef<HTMLCanvasElement>(null);
   const renderPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -87,6 +88,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
 
   useEffect(() => {
     const initialUrl = (() => {
+      if (propMapUrl) return propMapUrl;
       if (typeof window === "undefined") return "/maps/base.json";
       const params = new URLSearchParams(window.location.search);
       const urlParam = params.get("map");
@@ -108,8 +110,13 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     };
     const eng = new Engine(cfg);
     setEngine(eng);
+    setEngine(eng);
     engineRef.current = eng;
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (propMapUrl) setMapUrl(propMapUrl);
+  }, [propMapUrl]);
 
   useEffect(() => {
     if (!mapUrl) return;
@@ -201,12 +208,12 @@ export default function CanvasRenderer({ engineRef, variant = "sim" }: Props) {
     let raf = 0;
     const loop = (tMs: number) => {
       engine.advance(tMs / 1000);
-    renderCanvasRef.current();
+      renderCanvasRef.current();
+      raf = requestAnimationFrame(loop);
+    };
     raf = requestAnimationFrame(loop);
-  };
-  raf = requestAnimationFrame(loop);
-  return () => cancelAnimationFrame(raf);
-}, [engine]);
+    return () => cancelAnimationFrame(raf);
+  }, [engine]);
 
   const [spaceDown, setSpaceDown] = useState(false);
   const panStart = useRef<{ x: number; y: number } | null>(null);

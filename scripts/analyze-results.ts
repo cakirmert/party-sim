@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { relative, resolve } from "node:path";
-import { directCliRun, ensureDir, parseArgv, writeJson } from "./pipeline-utils";
+import { directCliRun, ensureDir, parseArgv, writeJson, slugify } from "./pipeline-utils";
 
 type Scenario = "weekday" | "weekend";
 
@@ -17,9 +17,10 @@ type RunMetrics = {
   gymOccupancyRatio: number;
   stuckRate: number;
   exitReachable: boolean;
-  agentTicks: number;
   stuckTicks: number;
   coverageRatio: number;
+  avgExitTime?: number;
+  evacuationRate?: number;
 };
 
 type RunOutput = {
@@ -48,19 +49,30 @@ type Aggregated = {
     meanOccupancy: number;
     exitSuccess: number;
     coverageRatio: number;
+    roomCapacity: number;
+    actualAgents: number;
+    avgExitTime: number;
+    evacuationRate: number;
   };
   score: number;
   rank: number;
+  scoreBreakdown?: Record<string, number>; // New breakdown field
   heatmaps: string[];
   params?: unknown;
   mapFile?: string;
+  runPath?: string;
 };
 
 type WeightConfig = {
-  flow: number;
-  wait: number;
-  cluster: number;
-  exit: number;
+  // Allow nested weights or flat properties
+  weights?: {
+    capacity: number;
+    utilization: number;
+    congestion: number;
+    path: number;
+    evacuation: number;
+    wait: number;
+  };
 };
 
 async function findRunFiles(root: string): Promise<string[]> {
@@ -121,6 +133,10 @@ function aggregateRuns(runs: RunOutput[]): Aggregated[] {
       meanOccupancy: mean(list.map(r => r.metrics.meanOccupancy)),
       exitSuccess: mean(list.map(r => (r.metrics.exitReachable ? 1 : 0))),
       coverageRatio: mean(list.map(r => r.metrics.coverageRatio)),
+      roomCapacity: mean(list.map(r => (r.metrics as any).roomCapacity || 0)),
+      actualAgents: mean(list.map(r => (r.metrics as any).actualAgents || 0)),
+      avgExitTime: mean(list.map(r => r.metrics.avgExitTime || 0)),
+      evacuationRate: mean(list.map(r => r.metrics.evacuationRate || 0)),
     };
 
     const heatmaps = list
@@ -136,32 +152,100 @@ function aggregateRuns(runs: RunOutput[]): Aggregated[] {
       heatmaps,
       params: list[0]?.meta?.["params"],
       mapFile: list[0]?.meta?.["mapFile"] as string | undefined,
+      // Pass the relative path to the best run (first in list usually, but let's pick the one with max score or simply the first since they are same map?)
+      // Actually we sort later. So in this list they are just all runs for this map.
+      // We can just pick the first one's path to allow fetching heatmapData.
+      // RunOutput doesn't explicitly have its own path, but we know the dir structure.
+      // Or we can rely on findRunFiles to have populated something? No.
+      // We need to resolve the path. 
+      // The best way is to infer it: slugify(seed).json in the scenario dir.
+      // Let's attach a 'runFile' property to the aggregate.
+      runPath: `${slugify(map)}/${list[0].scenario}/run-${slugify(list[0].seed)}.json`,
     });
   }
 
   return aggregates;
 }
 
-function scoreMaps(items: Aggregated[], weights: WeightConfig): Aggregated[] {
-  const waitMetric = (m: Aggregated["metrics"]) =>
-    m.stuckRate + Math.max(0, m.barOccupancyRatio - 1) + Math.max(0, m.gymOccupancyRatio - 1);
+function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
+  if (items.length === 0) return items;
 
-  const flowVals = items.map(i => i.metrics.avgPathLength);
-  const waitVals = items.map(i => waitMetric(i.metrics));
-  const clusterVals = items.map(i => i.metrics.corridorPeakDensity);
-  const exitVals = items.map(i => i.metrics.exitSuccess);
-  const coverageVals = items.map(i => i.metrics.coverageRatio);
+  // 1. Collect all raw metrics to find ranges
+  const capacityVals = items.map(i => i.metrics.roomCapacity || i.metrics.actualAgents);
+  const barVals = items.map(i => i.metrics.barOccupancyRatio);
+  const gymVals = items.map(i => i.metrics.gymOccupancyRatio);
+  // Congestion: use p95 for robust peak measuring
+  const congestionVals = items.map(i => i.metrics.corridorP95);
+  const pathVals = items.map(i => i.metrics.avgPathLength);
+  const evacRateVals = items.map(i => (i.metrics as any).evacuationRate || 0);
+  const evacTimeVals = items.map(i => (i.metrics as any).avgExitTime || 9999); // lower is better
+  const stuckVals = items.map(i => i.metrics.stuckRate);
 
-  const totalWeight = Math.max(1e-6, weights.flow + weights.wait + weights.cluster + weights.exit);
+  // Default weights matching notes.md
+  // capacity=35%, utilization=20%, congestion=15%, path=10%, evacuation=15%, wait=5%
+  const w = cfg.weights || {
+    capacity: 0.35,
+    utilization: 0.20,
+    congestion: 0.15,
+    path: 0.10,
+    evacuation: 0.15,
+    wait: 0.05,
+  };
 
   for (const item of items) {
-    const flowScore = normalizeLower(flowVals, item.metrics.avgPathLength);
-    const waitScore = normalizeLower(waitVals, waitMetric(item.metrics));
-    const clusterScore = (normalizeLower(clusterVals, item.metrics.corridorPeakDensity) + normalizeHigher(coverageVals, item.metrics.coverageRatio)) / 2;
-    const exitScore = normalizeHigher(exitVals, item.metrics.exitSuccess);
+    const m = item.metrics;
 
-    const score = (flowScore * weights.flow + waitScore * weights.wait + clusterScore * weights.cluster + exitScore * weights.exit) / totalWeight;
-    item.score = Number(score.toFixed(4));
+    // 2. Normalize each metric relative to the BATCH (0..1)
+    // Capacity: Higher is better
+    const sCap = normalizeHigher(capacityVals, m.roomCapacity || m.actualAgents);
+
+    // Utilization: Lower is better (closer to 0 occupancy ratio is "less crowded"?? 
+    // Actually, user said 0.043 is "winning" but that seems low. 
+    // Usually utilization we want balanced? 
+    // Wait, the previous logic said "ideal < 0.8". 
+    // Let's assume for now that "Lower Over-Capacity" is better.
+    // Or closer to a target? 
+    // Let's stick to: Lower Occupancy Ratio is BETTER (less crowded). 
+    // If that changes, we can flip it.
+    const sBar = normalizeLower(barVals, m.barOccupancyRatio);
+    const sGym = normalizeLower(gymVals, m.gymOccupancyRatio);
+    const sUtil = (sBar + sGym) / 2;
+
+    // Congestion: Lower P95 density is better
+    const sCongestion = normalizeLower(congestionVals, m.corridorP95);
+
+    // Path: Lower average path length is better
+    const sPath = normalizeLower(pathVals, m.avgPathLength);
+
+    // Evacuation: Higher rate is better, Lower time is better
+    const sEvacRate = normalizeHigher(evacRateVals, (m as any).evacuationRate || 0);
+    const sEvacTime = normalizeLower(evacTimeVals, (m as any).avgExitTime || 0);
+    const sEvac = sEvacRate * 0.6 + sEvacTime * 0.4;
+
+    // Stuck (Wait): Lower stuck rate is better
+    const sWait = normalizeLower(stuckVals, m.stuckRate);
+
+    // 3. Weighted Sum (0..1)
+    const rawScore =
+      sCap * w.capacity +
+      sUtil * w.utilization +
+      sCongestion * w.congestion +
+      sPath * w.path +
+      sEvac * w.evacuation +
+      sWait * w.wait;
+
+    // 4. Scale to 0..100 for readability
+    item.score = Number((rawScore * 100).toFixed(1));
+
+    // 5. Compute Breakdown (Points contributed by each category)
+    item.scoreBreakdown = {
+      capacity: Number((sCap * w.capacity * 100).toFixed(1)),
+      utilization: Number((sUtil * w.utilization * 100).toFixed(1)),
+      congestion: Number((sCongestion * w.congestion * 100).toFixed(1)),
+      path: Number((sPath * w.path * 100).toFixed(1)),
+      evacuation: Number((sEvac * w.evacuation * 100).toFixed(1)),
+      wait: Number((sWait * w.wait * 100).toFixed(1)),
+    };
   }
 
   items.sort((a, b) => b.score - a.score);
@@ -184,6 +268,8 @@ async function writeCsv(path: string, rows: Aggregated[]) {
     "meanOccupancy",
     "coverageRatio",
     "exitSuccess",
+    "evacuationRate",
+    "avgExitTime",
     "runs",
   ];
   const lines = [header.join(",")];
@@ -202,6 +288,8 @@ async function writeCsv(path: string, rows: Aggregated[]) {
       row.metrics.meanOccupancy.toFixed(3),
       row.metrics.coverageRatio.toFixed(3),
       row.metrics.exitSuccess.toFixed(3),
+      row.metrics.evacuationRate.toFixed(3),
+      row.metrics.avgExitTime.toFixed(1),
       row.runs.length,
     ].join(","));
   }
@@ -243,8 +331,13 @@ export async function analyzeResults(resultsDir: string, outDir: string, weights
   const runs: RunOutput[] = [];
   for (const file of runFiles) {
     const raw = await fs.readFile(file, "utf8");
-    const parsed = JSON.parse(raw) as RunOutput;
-    runs.push(parsed);
+    try {
+      const parsed = JSON.parse(raw) as RunOutput;
+      runs.push(parsed);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn(`Skipping invalid run file ${file}: ${(e as Error).message}`);
+    }
   }
 
   const aggregates = scoreMaps(aggregateRuns(runs), weights);
@@ -267,10 +360,14 @@ async function cli() {
   const resultsDir = resolve(String(args.results || args.input || "results"));
   const outDir = resolve(String(args.outDir || resolve(resultsDir, "analysis")));
   const weights: WeightConfig = {
-    flow: Number(args["w-flow"] ?? 0.4),
-    wait: Number(args["w-wait"] ?? 0.3),
-    cluster: Number(args["w-cluster"] ?? 0.3),
-    exit: Number(args["w-exit"] ?? 0.1),
+    weights: {
+      capacity: Number(args["w-capacity"] ?? 0.35),
+      utilization: Number(args["w-util"] ?? 0.20),
+      congestion: Number(args["w-congestion"] ?? 0.15),
+      path: Number(args["w-path"] ?? 0.10),
+      evacuation: Number(args["w-evacuation"] ?? 0.15),
+      wait: Number(args["w-wait"] ?? 0.05),
+    }
   };
   await analyzeResults(resultsDir, outDir, weights);
 }

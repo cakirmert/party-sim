@@ -42,6 +42,12 @@ export type RunMetrics = {
   stuckTicks: number;
   coverageRatio: number;
   hotspot: { x: number; y: number; value: number; tag?: string } | null;
+  /** Max room capacity (spawn points) for this map */
+  roomCapacity: number;
+  /** Actual agents spawned (min of requested and capacity) */
+  actualAgents: number;
+  avgExitTime?: number;
+  evacuationRate?: number;
 };
 
 export type RunOutput = {
@@ -115,6 +121,8 @@ export type BatchOptions = {
   heatmapFast?: boolean;
   /** Store heatmap as JSON data instead of PNG (much faster, default: false) */
   heatmapJson?: boolean;
+  /** Only keep top K results (skip file I/O for lower-scoring maps) */
+  topK?: number;
 };
 
 /** Task for parallel simulation worker */
@@ -130,6 +138,8 @@ export type SimulationTask = {
   heatmapFast?: boolean;
   heatmapJson?: boolean;
   outDir: string;
+  /** Skip file I/O in worker - return RunOutput for main thread to handle */
+  skipFileIO?: boolean;
 };
 
 /** Result from parallel simulation worker */
@@ -138,6 +148,9 @@ export type SimulationResult = {
   mapName: string;
   scenario: Scenario;
   seed: string;
+  /** Full run output when skipFileIO was set (for top-K filtering) */
+  runOutput?: RunOutput;
+  mapPath?: string;
 };
 
 /** Cached derived map data (computed once per map+agentCount) */
@@ -147,6 +160,126 @@ export type DerivedMapData = {
   gymIdx: number[];
   walkableCount: number;
 };
+
+/** Quick composite score for in-memory ranking (higher = better)
+ * Weights per notes.md:
+ *   capacity (40%): room count, target ~150 for 100%
+ *   utilization (25%): bar/gym not overcrowded
+ *   congestion (15%): hallway density 
+ *   path (20%): shorter travel time
+ *   exit (5%): reachability
+ */
+export function quickScore(m: RunMetrics): number {
+  // Capacity: ~150 rooms = 100% score, scales linearly
+  const TARGET_CAPACITY = 150;
+  const capacity = Math.min(1, (m.roomCapacity || m.actualAgents || 100) / TARGET_CAPACITY);
+
+  // Utilization: ideal < 0.8. Penalty starts at 0.8.
+  // Milder curve: 1.0 at <0.8, drops slowly.
+  const barOver = Math.max(0, m.barOccupancyRatio - 0.8);
+  const gymOver = Math.max(0, m.gymOccupancyRatio - 0.8);
+  // Penalty: e.g. if ratio is 1.2 (0.4 over), penalty should be noticeable but not zeroing.
+  // 1 / (1 + 0.4) = 0.71. Acceptable.
+  // Let's keep rational but maybe softer: 1 / (1 + x * 2) -> 1 / (1 + 0.8) = 0.55. Too harsh.
+  // Let's stick to 1 / (1 + x) for now, but ensure metrics are sane.
+  // Actually user wants "not all smaller than 0.5".
+  // Let's use linear penalty with floor. max possible over is maybe 2.0 (ratio 2.8).
+  // 1.0 - (over * 0.5). If over is 0.4 -> 0.8 score.
+  const utilization = Math.max(0, 1 - (barOver + gymOver) * 0.5);
+
+  // Congestion: corridorP95. Typical 0.1-0.3?
+  // If 0.1 -> score ~0.8. If 0.3 -> score ~0.4.
+  // Linear: 1 - (p95 * 2.5). 0.1->0.75. 0.3->0.25.
+  const congestion = Math.max(0, 1 - m.corridorP95 * 2.5);
+
+  // Path: shorter avg path length is better (typical range 30-80)
+  // 30 -> 1.0. 80 -> 0.375.
+  const pathScore = m.avgPathLength > 0 ? Math.min(1, 35 / m.avgPathLength) : 0.5;
+
+  // Evacuation Score
+  const MAX_DRILL_TICKS = 480;
+  const timeScore = Math.max(0, 1 - (m.avgExitTime || MAX_DRILL_TICKS) / MAX_DRILL_TICKS);
+  // Rate is paramount. If only 50% exit, score should be low.
+  const evacuation = (m.evacuationRate || 0) * 0.6 + timeScore * 0.4;
+
+  // Stuck rate: Scale 500x. 0.1% (0.001) -> 0.5 penalty -> 1/(1.5) = 0.66
+  // 0.05% -> 0.25 -> 0.8.
+  // 1% -> 5.0 -> 0.16. Good range.
+  const stuckPenalty = m.stuckRate * 500;
+  const waitScore = 1 / (1 + stuckPenalty);
+
+  // Weights: capacity=35%, utilization=20%, congestion=15%, path=10%, evacuation=15%, wait=5%
+  return capacity * 0.35 + utilization * 0.20 + congestion * 0.15 + pathScore * 0.10 + evacuation * 0.15 + waitScore * 0.05;
+}
+
+/** Entry in the top-K ranking heap */
+type RankedEntry = {
+  score: number;
+  run: RunOutput;
+  mapPath: string;
+};
+
+/** Min-heap to track top K results by score */
+export class TopKRanking {
+  private heap: RankedEntry[] = [];
+
+  constructor(private k: number) { }
+
+  /** Try to insert a run. Returns true if it made it into top K. */
+  tryInsert(run: RunOutput, mapPath: string): boolean {
+    const score = quickScore(run.metrics);
+
+    if (this.heap.length < this.k) {
+      // Heap not full, always insert
+      this.heap.push({ score, run, mapPath });
+      this.bubbleUp(this.heap.length - 1);
+      return true;
+    }
+
+    // Heap full - check if this beats the minimum
+    if (score > this.heap[0].score) {
+      // Replace min with new entry
+      this.heap[0] = { score, run, mapPath };
+      this.bubbleDown(0);
+      return true;
+    }
+
+    return false;
+  }
+
+  /** Get minimum score in heap (for progress logging) */
+  getMinScore(): number {
+    return this.heap.length > 0 ? this.heap[0].score : 0;
+  }
+
+  /** Get all results sorted by score (best first) */
+  getResults(): RankedEntry[] {
+    return [...this.heap].sort((a, b) => b.score - a.score);
+  }
+
+  private bubbleUp(i: number): void {
+    while (i > 0) {
+      const parent = Math.floor((i - 1) / 2);
+      if (this.heap[parent].score <= this.heap[i].score) break;
+      [this.heap[parent], this.heap[i]] = [this.heap[i], this.heap[parent]];
+      i = parent;
+    }
+  }
+
+  private bubbleDown(i: number): void {
+    const n = this.heap.length;
+    while (true) {
+      const left = 2 * i + 1;
+      const right = 2 * i + 2;
+      let smallest = i;
+      if (left < n && this.heap[left].score < this.heap[smallest].score) smallest = left;
+      if (right < n && this.heap[right].score < this.heap[smallest].score) smallest = right;
+      if (smallest === i) break;
+      [this.heap[smallest], this.heap[i]] = [this.heap[i], this.heap[smallest]];
+      i = smallest;
+    }
+  }
+}
 
 const DEFAULT_MAP_DIR = "public/maps/generated";
 const DEFAULT_SEEDS = ["sim-1", "sim-2"];
@@ -230,6 +363,11 @@ export function computeDerivedMapData(engine: Engine, map: BaseSpecFile): Derive
 type RunSimulationOpts = BatchOptions & {
   /** Pre-computed derived map data (to avoid re-scanning tiles) */
   derivedData?: DerivedMapData;
+  /** Skip writing heatmap PNG files (for deferred top-K mode) */
+  /** Skip writing heatmap PNG files (for deferred top-K mode) */
+  skipHeatmapFile?: boolean;
+  /** Callback for progress reporting (ticks completed) */
+  onProgress?: (ticks: number) => void;
 };
 
 async function runSimulation(
@@ -247,7 +385,10 @@ async function runSimulation(
     headless: true, // Skip events, density, perf stats for batch runs
   };
   const engine = new Engine(cfg, map.spec);
-  engine.resetWorld(map.spec, opts.agentCount);
+  // Always use max capacity - pass a very high number, engine caps at room count
+  engine.resetWorld(map.spec, 9999);
+  const roomCapacity = engine.getRoomCapacity();
+  const actualAgents = engine.getAgentCount();
   const scenarioDay = scenario === "weekend" ? 5 : 2;
   engine.tod.dayOfWeek = scenarioDay;
 
@@ -265,6 +406,11 @@ async function runSimulation(
   const steps = Math.max(1, Math.round(opts.simMinutes / MINUTES_PER_TICK));
 
   for (let i = 0; i < steps; i++) {
+    // 2. Report progress periodically
+    if (opts.onProgress && i % 64 === 0) {
+      opts.onProgress(i);
+    }
+
     engine.stepOnce();
     agentTicks += engine.getAgentCount();
     engine.forEachAgent((a) => {
@@ -334,15 +480,87 @@ async function runSimulation(
     }
   }
 
+  // --- Evacuation Drill ---
+  // Force all agents to exit and measure time/success
+  let avgExitTime = 0;
+  let evacuationRate = 0;
+  if (exitReachable) {
+    // Find all exit tiles once
+    const exits: Vec2[] = [];
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        if (engine.map.get(x, y).tag === "EXIT") exits.push({ x, y });
+      }
+    }
+
+    if (exits.length > 0) {
+      // Reset heuristics for drill
+      const agents = engine.getAgents();
+      const initialCount = agents.length;
+      if (initialCount > 0) {
+        // Assign every agent to nearest exit
+        for (const a of agents) {
+          let nearest: Vec2 = exits[0];
+          let minD = Infinity;
+          for (const e of exits) {
+            const d = Math.abs(a.pos.x - e.x) + Math.abs(a.pos.y - e.y); // Manhattan is fine for selection
+            if (d < minD) { minD = d; nearest = e; }
+          }
+          // Force move command
+          engine.dispatch({ type: "MOVE_AGENT_TO", id: a.id, dest: nearest });
+        }
+
+        // Run drill for 120 minutes (4 hours)
+        const DRILL_MINUTES = 240;
+        const MINUTES_PER_TICK = 0.5; // Engine default, but check config if variable?
+        const drillSteps = Math.ceil(DRILL_MINUTES / MINUTES_PER_TICK);
+
+        // We need to track who exited during drill. 
+        // Engine removes agents to outList.
+        const initialOutIds = new Set(engine.getOutList().map(o => o.id));
+        let totalExitTicks = 0;
+        let exitedCount = 0;
+
+        for (let i = 0; i < drillSteps; i++) {
+          engine.stepOnce();
+
+          // Check for new exits
+          const currentOut = engine.getOutList();
+          if (currentOut.length > initialOutIds.size) {
+            for (const rec of currentOut) {
+              if (!initialOutIds.has(rec.id)) {
+                // New exit
+                exitedCount++;
+                totalExitTicks += i; // ticks from start of drill
+                initialOutIds.add(rec.id);
+              }
+            }
+          }
+
+          if (engine.getAgentCount() === 0) break; // All gone
+        }
+
+        evacuationRate = exitedCount / initialCount;
+        // avgExitTime: average ticks to exit. If didn't exit, penalize with max drill time?
+        // User requested "Time to exit". 
+        // If we use only successful exits, it ignores stuck agents.
+        // Metric "Average Exit Time" usually implies successful exits.
+        // The score handles the fail case.
+        avgExitTime = exitedCount > 0 ? (totalExitTicks / exitedCount) : drillSteps;
+      }
+    }
+  }
+
   let heatmap: RunOutput["heatmap"];
   let heatmapData: RunOutput["heatmapData"];
-  
+
   if (opts.heatmap) {
     // Compute normalized occupancy grid
     const maxForNorm = Math.max(1e-6, maxMeanTile);
-    
-    if (opts.heatmapJson) {
+
+    if (opts.heatmapJson || opts.skipHeatmapFile) {
       // JSON mode: store normalized data inline (much faster, no PNG encoding)
+      // Also used when skipHeatmapFile is set for deferred top-K heatmap generation
       const data: number[] = new Array(gridSize);
       for (let i = 0; i < gridSize; i++) {
         // Round to 3 decimal places to reduce JSON size
@@ -358,7 +576,7 @@ async function runSimulation(
     } else {
       // PNG mode (legacy): render to image file
       const scale = Math.max(1, Math.floor(opts.heatmapScale));
-      
+
       // Fast mode: skip Gaussian blur, use raw occupancy data normalized
       let grid: Float64Array;
       let max: number;
@@ -376,7 +594,7 @@ async function runSimulation(
         grid = smooth.grid;
         max = smooth.max;
       }
-      
+
       const png = new PNG({ width: map.width * scale, height: map.height * scale });
       const pngMaxNorm = Math.max(1e-6, max);
       grid.forEach((mean, idx) => {
@@ -422,6 +640,11 @@ async function runSimulation(
     stuckTicks,
     coverageRatio,
     hotspot,
+    roomCapacity,
+    actualAgents,
+    // New metrics
+    avgExitTime,
+    evacuationRate,
   };
 
   const run: RunOutput = {
@@ -471,15 +694,17 @@ export async function runBatch(opts: BatchOptions): Promise<RunOutput[]> {
  * Run a single simulation task (used by worker threads).
  * Loads map, runs simulation, saves results, returns summary.
  * Accepts optional pre-loaded map and derived data for caching.
+ * When skipFileIO is set, returns RunOutput for main thread to filter/write.
  */
 export async function runSimulationTask(
   task: SimulationTask,
   cachedMap?: BaseSpecFile,
-  cachedDerived?: DerivedMapData
+  cachedDerived?: DerivedMapData,
+  onProgress?: (ticks: number) => void
 ): Promise<SimulationResult> {
   const map = cachedMap ?? await loadMapFile(task.mapPath);
   (map.meta ??= {}).sourcePath = task.mapPath;
-  
+
   const opts: RunSimulationOpts = {
     maps: [task.mapPath],
     outDir: task.outDir,
@@ -493,17 +718,35 @@ export async function runSimulationTask(
     heatmapFast: task.heatmapFast,
     heatmapJson: task.heatmapJson,
     derivedData: cachedDerived,
+    // Defer heatmap PNG writes when doing top-K filtering
+    skipHeatmapFile: task.skipFileIO,
+    onProgress,
   };
-  
+
   const run = await runSimulation(map, task.scenario, task.seed, opts);
-  const dir = resolve(task.outDir, slugify(map.name || fileStem(task.mapPath)), task.scenario);
+  const mapName = map.name || fileStem(task.mapPath);
+
+  // When skipFileIO is set, return RunOutput for top-K filtering in main thread
+  if (task.skipFileIO) {
+    return {
+      outputPath: "",
+      mapName,
+      scenario: task.scenario,
+      seed: task.seed,
+      runOutput: run,
+      mapPath: task.mapPath,
+    };
+  }
+
+  // Normal path: write to disk immediately
+  const dir = resolve(task.outDir, slugify(mapName), task.scenario);
   await ensureDir(dir);
   const outPath = resolve(dir, `run-${slugify(task.seed)}.json`);
   await writeJson(outPath, run);
-  
+
   return {
     outputPath: outPath,
-    mapName: map.name || fileStem(task.mapPath),
+    mapName,
     scenario: task.scenario,
     seed: task.seed,
   };
@@ -511,13 +754,15 @@ export async function runSimulationTask(
 
 /**
  * Run batch simulations in parallel using worker threads.
+ * When topK is set, only writes results for maps that make it into the top K.
  */
 export async function runBatchParallel(
-  opts: BatchOptions & { workers?: number; onProgress?: (completed: number, total: number) => void }
+  opts: BatchOptions & { workers?: number; onProgress?: (completed: number, total: number, taskId?: number, subProgress?: number) => void }
 ): Promise<SimulationResult[]> {
   const workerPath = resolve(import.meta.dirname ?? __dirname, "sim-worker.ts");
   const workerCount = opts.workers ?? getDefaultWorkerCount();
-  
+  const useTopK = !!(opts.topK && opts.topK > 0);
+
   // Build task list
   const tasks: SimulationTask[] = [];
   for (const mapPath of opts.maps) {
@@ -533,33 +778,51 @@ export async function runBatchParallel(
           heatmap: opts.heatmap,
           heatmapScale: opts.heatmapScale,
           heatmapFast: opts.heatmapFast,
-          heatmapJson: opts.heatmapJson,
+          heatmapJson: opts.heatmapJson ?? true, // Default to JSON mode (no PNGs)
           outDir: opts.outDir,
+          // Skip file I/O when using top-K filtering
+          skipFileIO: useTopK,
         });
       }
     }
   }
-  
+
   // eslint-disable-next-line no-console
-  console.log(`Running ${tasks.length} simulations with ${workerCount} workers...`);
-  
+  console.log(`Running ${tasks.length} simulations with ${workerCount} workers${useTopK ? ` (top-K=${opts.topK})` : ""}...`);
+
   const results = await runParallelTasks<SimulationTask, SimulationResult>(
     tasks,
     workerPath,
     workerCount,
-    (completed, total, taskId) => {
-      // eslint-disable-next-line no-console
-      console.log(`[${completed}/${total}] Completed task ${taskId}`);
+    (completed, total, taskId, subProgress) => {
+      // Calculate approximate total progress if we knew total ticks per task.
+      // We know task.simMinutes -> total ticks.
+      // But here we just log granular updates occasionally to avoid spamming
+      if (subProgress !== undefined && subProgress % 512 === 0) { // Log every ~512 ticks
+        // Using strict stdout write for cleaner logs if TTY
+        // process.stdout.write(`\r[${completed}/${total}] Task ${taskId}: Ticks ${subProgress}   `);
+        // But strict logging is safer for now
+      }
+
+      if (subProgress === undefined || subProgress === 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[${completed}/${total}] Completed task ${taskId}`);
+      }
+
       if (opts.onProgress) {
-        opts.onProgress(completed, total);
+        // Pass taskId and subProgress (ticks) to caller
+        // We cast to any because BatchOptions might define a simpler callback signature,
+        // but passing extra args is safe in JS/TS if the receiver handles it.
+        // Actually, let's update the signature in the function args.
+        opts.onProgress(completed, total, taskId, subProgress);
       }
     }
   );
-  
+
   // Extract successful results
   const successful: SimulationResult[] = [];
   const errors: string[] = [];
-  
+
   for (const r of results) {
     if (r.result) {
       successful.push(r.result);
@@ -567,15 +830,89 @@ export async function runBatchParallel(
       errors.push(`Task ${r.id}: ${r.error}`);
     }
   }
-  
+
   if (errors.length) {
     // eslint-disable-next-line no-console
     console.warn(`${errors.length} tasks failed:\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n...and ${errors.length - 5} more` : ""}`);
   }
-  
+
+  // When using top-K, filter results and write only the best ones
+  if (useTopK && opts.topK) {
+    const ranking = new TopKRanking(opts.topK);
+
+    // Insert all results into the ranking
+    for (const r of successful) {
+      if (r.runOutput) {
+        ranking.tryInsert(r.runOutput, r.mapPath || "");
+      }
+    }
+
+    // Write only the top K results to disk
+    const topResults = ranking.getResults();
+    const written: SimulationResult[] = [];
+
+    // eslint-disable-next-line no-console
+    console.log(`Finalizing results: filtering top ${opts.topK} maps and writing to disk...`);
+    // eslint-disable-next-line no-console
+    console.log(`Top-K filter: writing ${topResults.length} of ${successful.length} results...`);
+
+    for (const entry of topResults) {
+      const run = entry.run;
+      const mapName = run.map;
+      const dir = resolve(opts.outDir, slugify(mapName), run.scenario);
+      await ensureDir(dir);
+
+      // Render heatmap PNG from stored JSON data (only for top-K results)
+      if (opts.heatmap && run.heatmapData && !run.heatmap) {
+        const { width, height, data, maxMean, maxInstant } = run.heatmapData;
+        const scale = Math.max(1, Math.floor(opts.heatmapScale));
+        const png = new PNG({ width: width * scale, height: height * scale });
+        const maxForNorm = Math.max(1e-6, Math.max(...data));
+
+        for (let i = 0; i < data.length; i++) {
+          const norm = data[i] / maxForNorm;
+          const [r, g, b] = heatColor(norm);
+          const x = i % width;
+          const y = Math.floor(i / width);
+          for (let sy = 0; sy < scale; sy++) {
+            for (let sx = 0; sx < scale; sx++) {
+              const px = x * scale + sx;
+              const py = y * scale + sy;
+              const o = (py * png.width + px) * 4;
+              png.data[o] = r;
+              png.data[o + 1] = g;
+              png.data[o + 2] = b;
+              png.data[o + 3] = 255;
+            }
+          }
+        }
+
+        const pngPath = resolve(dir, `run-${slugify(run.seed)}__heatmap.png`);
+        const buffer = PNG.sync.write(png);
+        await fs.writeFile(pngPath, buffer);
+        run.heatmap = { png: pngPath, rel: relative(process.cwd(), pngPath), maxMean, maxInstant };
+      }
+
+      const outPath = resolve(dir, `run-${slugify(run.seed)}.json`);
+      await writeJson(outPath, run);
+
+      written.push({
+        outputPath: outPath,
+        mapName,
+        scenario: run.scenario,
+        seed: run.seed,
+      });
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`Completed ${successful.length}/${tasks.length} simulations, wrote top ${written.length}`);
+
+    return written;
+  }
+
   // eslint-disable-next-line no-console
   console.log(`Completed ${successful.length}/${tasks.length} simulations`);
-  
+
   return successful;
 }
 

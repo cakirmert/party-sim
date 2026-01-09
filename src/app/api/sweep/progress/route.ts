@@ -56,8 +56,36 @@ export async function GET(req: Request) {
     progressState.lastTime = Date.now();
   }
 
-  const { count: found, latestMap } = await countRunFiles(resultsDir);
-  const total = Math.max(1, expected || found || 1);
+  // Check for status file first (faster and works with top-K)
+  let found = 0;
+  let total = Math.max(1, expected || 1);
+  const statusPath = resolve(resultsDir, "sweep-status.json");
+  let usedStatusFile = false;
+  let latestMap: string | undefined;
+
+  try {
+    const statusRaw = await fs.readFile(statusPath, "utf8");
+    const status = JSON.parse(statusRaw);
+    if (status.updatedAt && (Date.now() - status.updatedAt < 60000)) { // Valid for 1 minute
+      found = status.completed;
+      if (status.total) total = status.total;
+      usedStatusFile = true;
+      // Status file might track latest map? If not custom implementation needed.
+      // For now, leave undefined or if appended to status.
+      latestMap = status.latestMap;
+    }
+  } catch {
+    // ignore
+  }
+
+  if (!usedStatusFile) {
+    const fileCount = await countRunFiles(resultsDir);
+    found = fileCount.count;
+    latestMap = fileCount.latestMap || undefined;
+    // ensure total respects expected if greater
+    total = Math.max(total, found);
+  }
+
   const progress = Math.min(1, found / total);
 
   // Calculate ETA based on rate

@@ -11,6 +11,8 @@ import {
   parseCsv,
 } from "./pipeline-utils";
 
+import { writeFileSync } from "node:fs";
+
 async function cli() {
   const args = parseArgv(process.argv.slice(2));
 
@@ -19,7 +21,7 @@ async function cli() {
   const count = Number(args.count ?? 8);
   const seed = typeof args.seed === "string" ? args.seed : randomUUID();
   const skipGenerate = args["skip-generate"] === true || args["skip-generate"] === "true";
-  
+
   // Parallel execution options
   const parallel = args.parallel !== "false" && args.parallel !== false;
   const workers = Number(args.workers) || getDefaultWorkerCount();
@@ -55,9 +57,12 @@ async function cli() {
     .map(s => parseInt(s, 10))
     .filter(n => !isNaN(n) && n > 0);
   const agentList = agentCounts.length > 0 ? agentCounts : [80];
-  
+
   // Default to 960 minutes (16 hours: 6am to 10pm) for realistic day simulation
   const simMinutes = Number(args.minutes ?? 960);
+
+  // Top-K filtering: only write results for top K maps (reduces file I/O)
+  const topK = Number(args.topK ?? args["top-k"]) || undefined;
 
   // Run simulations for each agent count
   for (const agentCount of agentList) {
@@ -72,12 +77,46 @@ async function cli() {
       heatmap: args.heatmap !== "false",
       // Default scale 4 to match map preview (min(480/120, 480/70, 4) = 4 for 120x70 grid)
       heatmapScale: Number(args.heatmapScale ?? 4),
+      topK,
     };
-    
+
     if (parallel) {
       // eslint-disable-next-line no-console
-      console.log(`Running parallel simulation with ${workers} workers for ${agentCount} agents...`);
-      await runBatchParallel({ ...batchOpts, workers });
+      console.log(`Running parallel simulation with ${workers} workers for ${agentCount} agents${topK ? ` (top-K=${topK})` : ""}...`);
+
+      let lastWrite = 0;
+      await runBatchParallel({
+        ...batchOpts,
+        workers,
+        onProgress: (completed, total) => {
+          const now = Date.now();
+          if (now - lastWrite > 1000) { // Write status at most once per second
+            try {
+              writeFileSync(resolve(resultsDir, "sweep-status.json"), JSON.stringify({
+                completed,
+                total,
+                updatedAt: now,
+                agentCount,
+              }, null, 2));
+              lastWrite = now;
+            } catch (e) {
+              // ignore write errors during progress
+            }
+          }
+        }
+      });
+
+      // Final write to ensure 100% is recorded
+      try {
+        writeFileSync(resolve(resultsDir, "sweep-status.json"), JSON.stringify({
+          completed: batchOpts.maps.length * batchOpts.scenarios.length * batchOpts.seeds.length, // approximate total or use explicit
+          total: batchOpts.maps.length * batchOpts.scenarios.length * batchOpts.seeds.length,
+          updatedAt: Date.now(),
+          agentCount,
+          finished: true
+        }, null, 2));
+      } catch (e) { /* ignore */ }
+
     } else {
       // eslint-disable-next-line no-console
       console.log(`Running sequential simulation for ${agentCount} agents...`);
@@ -89,10 +128,14 @@ async function cli() {
     resultsDir,
     resolve(resultsDir, "analysis"),
     {
-      flow: Number(args["w-flow"] ?? 0.4),
-      wait: Number(args["w-wait"] ?? 0.3),
-      cluster: Number(args["w-cluster"] ?? 0.3),
-      exit: Number(args["w-exit"] ?? 0.1),
+      weights: {
+        capacity: Number(args["w-capacity"] ?? 0.35),
+        utilization: Number(args["w-util"] ?? 0.20),
+        congestion: Number(args["w-congestion"] ?? 0.15),
+        path: Number(args["w-path"] ?? 0.10),
+        evacuation: Number(args["w-evacuation"] ?? 0.15),
+        wait: Number(args["w-wait"] ?? 0.05),
+      }
     }
   );
 }

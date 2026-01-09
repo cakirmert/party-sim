@@ -345,9 +345,13 @@ export type ParameterRanges = {
   bandCount: number[];
   dormRowGap: number[];
   barSizes: PoiSizeConfig[];
+  barWidths: number[];
+  barHeights: number[]; // New split dimensions
   barSides: Side[];
   barYOffsets: number[];
   gymSizes: PoiSizeConfig[];
+  gymWidths: number[];
+  gymHeights: number[]; // New split dimensions
   gymSides: Side[];
   gymYOffsets: number[];
   outsideHeight: number[];
@@ -369,6 +373,8 @@ export const DEFAULT_PARAMETER_RANGES: ParameterRanges = {
     { w: 16, h: 6 },
     { w: 18, h: 7 },
   ],
+  barWidths: [14, 16],
+  barHeights: [5, 6],
   barSides: ["left", "right"],
   barYOffsets: [-1, 0, 1],
   gymSizes: [
@@ -376,6 +382,8 @@ export const DEFAULT_PARAMETER_RANGES: ParameterRanges = {
     { w: 10, h: 5 },
     { w: 12, h: 6 },
   ],
+  gymWidths: [8, 10],
+  gymHeights: [4, 5],
   gymSides: ["left", "right"], // Will be opposite of bar
   gymYOffsets: [-1, 0, 1],
   outsideHeight: [4],
@@ -393,10 +401,13 @@ export function calculateVariationCount(ranges: ParameterRanges): number {
     ranges.bandHeight.length *
     ranges.bandCount.length *
     ranges.dormRowGap.length *
-    ranges.barSizes.length *
+    ranges.bandCount.length *
+    ranges.dormRowGap.length *
+    (ranges.barSizes.length > 0 ? ranges.barSizes.length : (ranges.barWidths.length * ranges.barHeights.length)) *
     ranges.barSides.length * // gym side is opposite, so only count bar sides
     ranges.barYOffsets.length *
-    ranges.gymSizes.length *
+    (ranges.gymSizes.length > 0 ? ranges.gymSizes.length : (ranges.gymWidths.length * ranges.gymHeights.length)) *
+    ranges.gymYOffsets.length *
     ranges.gymYOffsets.length *
     ranges.outsideHeight.length *
     ranges.exitWidth.length
@@ -416,10 +427,20 @@ export function expandParameterRanges(ranges: ParameterRanges, seed: string = "e
       for (const bandHeight of ranges.bandHeight) {
         for (const bandCount of ranges.bandCount) {
           for (const dormRowGap of ranges.dormRowGap) {
-            for (const barSize of ranges.barSizes) {
+            // Support both explicit key-pair sizes OR separate cartesian product
+            const barVariations = ranges.barSizes.length > 0
+              ? ranges.barSizes
+              : ranges.barWidths.flatMap(w => ranges.barHeights.map(h => ({ w, h })));
+
+            for (const barSize of barVariations) {
               for (const barSide of ranges.barSides) {
                 for (const barYOffset of ranges.barYOffsets) {
-                  for (const gymSize of ranges.gymSizes) {
+                  // Gym variations
+                  const gymVariations = ranges.gymSizes.length > 0
+                    ? ranges.gymSizes
+                    : ranges.gymWidths.flatMap(w => ranges.gymHeights.map(h => ({ w, h })));
+
+                  for (const gymSize of gymVariations) {
                     // Gym side is always opposite of bar
                     const gymSide: Side = barSide === "left" ? "right" : "left";
                     for (const gymYOffset of ranges.gymYOffsets) {
@@ -493,7 +514,11 @@ export function buildRangesFromForm(form: {
   bandCount?: string;
   rowGap?: string;
   barSize?: string;
+  barX?: string;
+  barY?: string;
   gymSize?: string;
+  gymX?: string;
+  gymY?: string;
   exitWidth?: string;
   outside?: string;
 }): ParameterRanges {
@@ -513,9 +538,13 @@ export function buildRangesFromForm(form: {
     bandCount: bandCount.length ? bandCount : DEFAULT_PARAMETER_RANGES.bandCount,
     dormRowGap: dormRowGap.length ? dormRowGap : DEFAULT_PARAMETER_RANGES.dormRowGap,
     barSizes: barSizes.length ? barSizes : DEFAULT_PARAMETER_RANGES.barSizes,
+    barWidths: DEFAULT_PARAMETER_RANGES.barWidths, // No form input for these, use default
+    barHeights: DEFAULT_PARAMETER_RANGES.barHeights, // No form input for these, use default
     barSides: DEFAULT_PARAMETER_RANGES.barSides,
     barYOffsets: DEFAULT_PARAMETER_RANGES.barYOffsets,
     gymSizes: gymSizes.length ? gymSizes : DEFAULT_PARAMETER_RANGES.gymSizes,
+    gymWidths: DEFAULT_PARAMETER_RANGES.gymWidths, // No form input for these, use default
+    gymHeights: DEFAULT_PARAMETER_RANGES.gymHeights, // No form input for these, use default
     gymSides: DEFAULT_PARAMETER_RANGES.gymSides,
     gymYOffsets: DEFAULT_PARAMETER_RANGES.gymYOffsets,
     outsideHeight: outsideHeight.length ? outsideHeight : DEFAULT_PARAMETER_RANGES.outsideHeight,

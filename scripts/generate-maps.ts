@@ -318,7 +318,11 @@ async function cli() {
     bandCount: typeof args.bandCount === "string" ? args.bandCount : undefined,
     rowGap: typeof args.rowGap === "string" ? args.rowGap : undefined,
     barSize: typeof args.barSize === "string" ? args.barSize : undefined,
+    barX: typeof args.barX === "string" ? args.barX : undefined,
+    barY: typeof args.barY === "string" ? args.barY : undefined,
     gymSize: typeof args.gymSize === "string" ? args.gymSize : undefined,
+    gymX: typeof args.gymX === "string" ? args.gymX : undefined,
+    gymY: typeof args.gymY === "string" ? args.gymY : undefined,
     exitWidth: typeof args.exitWidth === "string" ? args.exitWidth : undefined,
     outside: typeof args.outside === "string" ? args.outside : undefined,
   });
