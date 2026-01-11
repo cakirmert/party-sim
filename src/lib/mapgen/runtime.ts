@@ -117,7 +117,9 @@ export function buildSpecRuntime(
     { x: corridorX0, y: usableTop, w: corridorWidth, h: Math.max(4, usableHeight) },
   ];
 
-  const buffer = Math.max(2, Math.floor(corridorWidth / 3));
+  // Remove buffer - extend buildable zones right up to corridor edge
+  // Only need 1 tile gap for the corridor walkway
+  const buffer = 1;
   const leftWidth = Math.max(MIN_ROOM_SIZE, corridorX0 - margin - buffer);
   const rightWidth = Math.max(MIN_ROOM_SIZE, grid.width - margin - (corridorX0 + corridorWidth) - buffer);
   const buildableRects: RectSpec[] = [];
@@ -134,8 +136,12 @@ export function buildSpecRuntime(
   const minBandHeight = Math.max(requestedBandHeight, roomTotalH * 2 + rowGap); // ensure at least two rows fit
 
   const roomsPerRow = (width: number) => Math.max(0, Math.floor(width / stepX));
+  // Calculate rows: last row doesn't need a gap below (door opens up)
+  // So: (N-1) * stepY + roomTotalH <= height
+  //     N * stepY - rowGap <= height
+  //     N <= (height + rowGap) / stepY
   const roomsPerBand = (height: number) => {
-    const rows = Math.max(0, Math.floor((height - roomTotalH) / stepY) + 1);
+    const rows = Math.max(0, Math.floor((height + rowGap) / stepY));
     return rows * (roomsPerRow(leftWidth) + roomsPerRow(rightWidth));
   };
 
@@ -153,16 +159,22 @@ export function buildSpecRuntime(
   const bandHeight = best.bandHeight;
   const bandCount = best.bandCount;
 
+  // Use full available height instead of fixed band height
+  // This fills the entire usable vertical space
+  const fullHeight = usableHeight;
+
   let yCursor = usableTop;
   for (let i = 0; i < bandCount; i++) {
-    buildableRects.push({ x: margin, y: yCursor, w: leftWidth, h: bandHeight });
+    // For single band, use full height; otherwise use calculated band height
+    const thisHeight = bandCount === 1 ? fullHeight : bandHeight;
+    buildableRects.push({ x: margin, y: yCursor, w: leftWidth, h: thisHeight });
     buildableRects.push({
       x: grid.width - margin - rightWidth,
       y: yCursor,
       w: rightWidth,
-      h: bandHeight,
+      h: thisHeight,
     });
-    yCursor += bandHeight;
+    yCursor += thisHeight;
     if (i < bandCount - 1) {
       if (crossHeight > 0) {
         corridorRects.push({ x: margin, y: yCursor, w: grid.width - margin * 2, h: crossHeight });
@@ -363,10 +375,10 @@ export type ParameterRanges = {
  * Bar/Gym sides are linked: bar on one side, gym on the opposite.
  */
 export const DEFAULT_PARAMETER_RANGES: ParameterRanges = {
-  corridorWidth: [2, 3, 4],
+  corridorWidth: [2],      // Fixed: no variation needed
   crossHeight: [0],
   bandHeight: [12],
-  bandCount: [0, 4],
+  bandCount: [0],          // Fixed: auto-calculate bands
   dormRowGap: [2, 3],
   barSizes: [
     { w: 14, h: 5 },
@@ -376,7 +388,7 @@ export const DEFAULT_PARAMETER_RANGES: ParameterRanges = {
   barWidths: [14, 16],
   barHeights: [5, 6],
   barSides: ["left", "right"],
-  barYOffsets: [-1, 0, 1],
+  barYOffsets: [0],          // Fixed: no variation needed
   gymSizes: [
     { w: 8, h: 4 },
     { w: 10, h: 5 },
@@ -385,7 +397,7 @@ export const DEFAULT_PARAMETER_RANGES: ParameterRanges = {
   gymWidths: [8, 10],
   gymHeights: [4, 5],
   gymSides: ["left", "right"], // Will be opposite of bar
-  gymYOffsets: [-1, 0, 1],
+  gymYOffsets: [0],          // Fixed: no variation needed
   outsideHeight: [4],
   exitWidth: [10, 12],
 };
@@ -401,13 +413,10 @@ export function calculateVariationCount(ranges: ParameterRanges): number {
     ranges.bandHeight.length *
     ranges.bandCount.length *
     ranges.dormRowGap.length *
-    ranges.bandCount.length *
-    ranges.dormRowGap.length *
     (ranges.barSizes.length > 0 ? ranges.barSizes.length : (ranges.barWidths.length * ranges.barHeights.length)) *
     ranges.barSides.length * // gym side is opposite, so only count bar sides
     ranges.barYOffsets.length *
     (ranges.gymSizes.length > 0 ? ranges.gymSizes.length : (ranges.gymWidths.length * ranges.gymHeights.length)) *
-    ranges.gymYOffsets.length *
     ranges.gymYOffsets.length *
     ranges.outsideHeight.length *
     ranges.exitWidth.length
@@ -516,9 +525,11 @@ export function buildRangesFromForm(form: {
   barSize?: string;
   barX?: string;
   barY?: string;
+  barOffsets?: string;
   gymSize?: string;
   gymX?: string;
   gymY?: string;
+  gymOffsets?: string;
   exitWidth?: string;
   outside?: string;
 }): ParameterRanges {
@@ -531,22 +542,35 @@ export function buildRangesFromForm(form: {
   const exitWidth = parseNumberList(form.exitWidth);
   const outsideHeight = parseNumberList(form.outside);
 
+  const barWidths = parseNumberList(form.barX);
+  const barHeights = parseNumberList(form.barY);
+  const barYOffsets = parseNumberList(form.barOffsets);
+
+  const gymWidths = parseNumberList(form.gymX);
+  const gymHeights = parseNumberList(form.gymY);
+  const gymYOffsets = parseNumberList(form.gymOffsets);
+
+  // Logic to prefer explicit W/H over legacy Size pairs if provided
+  const useBarDims = barWidths.length > 0 || barHeights.length > 0;
+  const useGymDims = gymWidths.length > 0 || gymHeights.length > 0;
+
   return {
     corridorWidth: corridorWidth.length ? corridorWidth : DEFAULT_PARAMETER_RANGES.corridorWidth,
     crossHeight: DEFAULT_PARAMETER_RANGES.crossHeight,
     bandHeight: bandHeight.length ? bandHeight : DEFAULT_PARAMETER_RANGES.bandHeight,
     bandCount: bandCount.length ? bandCount : DEFAULT_PARAMETER_RANGES.bandCount,
     dormRowGap: dormRowGap.length ? dormRowGap : DEFAULT_PARAMETER_RANGES.dormRowGap,
-    barSizes: barSizes.length ? barSizes : DEFAULT_PARAMETER_RANGES.barSizes,
-    barWidths: DEFAULT_PARAMETER_RANGES.barWidths, // No form input for these, use default
-    barHeights: DEFAULT_PARAMETER_RANGES.barHeights, // No form input for these, use default
+    // If we have explicit dimensions, clear the legacy size list to force combinatorial usage
+    barSizes: useBarDims ? [] : (barSizes.length ? barSizes : DEFAULT_PARAMETER_RANGES.barSizes),
+    barWidths: barWidths.length ? barWidths : DEFAULT_PARAMETER_RANGES.barWidths,
+    barHeights: barHeights.length ? barHeights : DEFAULT_PARAMETER_RANGES.barHeights,
     barSides: DEFAULT_PARAMETER_RANGES.barSides,
-    barYOffsets: DEFAULT_PARAMETER_RANGES.barYOffsets,
-    gymSizes: gymSizes.length ? gymSizes : DEFAULT_PARAMETER_RANGES.gymSizes,
-    gymWidths: DEFAULT_PARAMETER_RANGES.gymWidths, // No form input for these, use default
-    gymHeights: DEFAULT_PARAMETER_RANGES.gymHeights, // No form input for these, use default
+    barYOffsets: barYOffsets.length ? barYOffsets : DEFAULT_PARAMETER_RANGES.barYOffsets,
+    gymSizes: useGymDims ? [] : (gymSizes.length ? gymSizes : DEFAULT_PARAMETER_RANGES.gymSizes),
+    gymWidths: gymWidths.length ? gymWidths : DEFAULT_PARAMETER_RANGES.gymWidths,
+    gymHeights: gymHeights.length ? gymHeights : DEFAULT_PARAMETER_RANGES.gymHeights,
     gymSides: DEFAULT_PARAMETER_RANGES.gymSides,
-    gymYOffsets: DEFAULT_PARAMETER_RANGES.gymYOffsets,
+    gymYOffsets: gymYOffsets.length ? gymYOffsets : DEFAULT_PARAMETER_RANGES.gymYOffsets,
     outsideHeight: outsideHeight.length ? outsideHeight : DEFAULT_PARAMETER_RANGES.outsideHeight,
     exitWidth: exitWidth.length ? exitWidth : DEFAULT_PARAMETER_RANGES.exitWidth,
   };

@@ -234,8 +234,20 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
     // Formula: 50 + (Z * 15), clamped to [0, 100]
 
     // Capacity
-    const zCap = normalizeZ(m.roomCapacity || m.actualAgents, sCap.mean, sCap.stdDev, false);
-    const scoreCap = Math.max(0, Math.min(100, 50 + zCap * 15));
+    // Capacity: Target is 150. Score based on proximity.
+    // We compute deviation from 150, then normalize (Lower deviation is better).
+    const capVal = m.roomCapacity || m.actualAgents;
+    const capDist = Math.abs(capVal - 150);
+    // We need statistics of the *deviations* to z-score them properly behavior-wise relative to batch
+    // But sCap is stats of raw values. 
+    // Let's compute z-score of the raw value against mean, but that doesn't target 150.
+    // Simple approach: Use a fixed bell curve centered at 150?
+    // Or: Normalize deviation against batch deviation?
+    // Let's stick to the requested "closer to 150 is better".
+    // 100 - (dist / 1.5) ? If dist is 0, score 100. If dist is 50, score 66.
+    const scoreCap = Math.max(0, 100 - (capDist * 0.5)); // Simple linear penalty: 1 point off per 2 units away.
+    // e.g. 150 -> 100. 100 -> 75. 200 -> 75. 50 -> 50.
+
 
     // Utilization (Bar & Gym)
     const zBar = normalizeZ(m.barOccupancyRatio, sBar.mean, sBar.stdDev, true);

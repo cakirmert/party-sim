@@ -46,15 +46,16 @@ const FIXED_HEATMAP_SCALE = 4;
 const DEFAULT_WORKERS = typeof navigator !== "undefined" ? Math.max(1, (navigator.hardwareConcurrency || 4) - 1) : 4;
 
 const DEFAULT_FORM = {
-  count: 32,
+  count: 194, // Matches screenshot max for "all"
   runs: 1,
   minutes: 1200, // 20 hours: 6am to 2am
+  agents: "150",
   seed: "ui-seed",
-  rowGap: "2,3",
-  barX: "14,16",
-  barY: "5,6",
-  gymX: "8,10",
-  gymY: "4,5",
+  rowGap: "2,3,4",
+  barX: "6,10,14,18",
+  barY: "6,10,14",
+  gymX: "6,10,14,18",
+  gymY: "6,10,14",
   exitWidth: "10,12",
   heatmap: true,
   resultsDir: "results",
@@ -88,13 +89,17 @@ export default function SweepLabPage() {
 
   // Calculate variation count from current form parameters
   const variationInfo = useMemo(() => {
+    // Helper to normalize input: Replace dots with commas to support "6.10.14" format
+    const clean = (s: string) => s.replace(/\./g, ",");
+
+    // We must pass the fully dynamic set of parameters to get the true count
     const ranges = buildRangesFromForm({
-      rowGap: form.rowGap,
-      barX: form.barX,
-      barY: form.barY,
-      gymX: form.gymX,
-      gymY: form.gymY,
-      exitWidth: form.exitWidth,
+      rowGap: clean(form.rowGap),
+      barX: clean(form.barX),
+      barY: clean(form.barY),
+      gymX: clean(form.gymX),
+      gymY: clean(form.gymY),
+      exitWidth: clean(form.exitWidth),
     });
     const total = calculateVariationCount(ranges);
     const mapsToGenerate = Math.min(total, form.count);
@@ -281,11 +286,16 @@ export default function SweepLabPage() {
               <div className="space-y-4">
                 {/* Primary Stats Grid */}
                 <div className="grid grid-cols-2 gap-3">
-                  <Label text="Map Variations" hint="Max unique layouts">
-                    <input type="number" min={1} max={variationInfo.total} value={form.count}
-                      onChange={(e) => setForm({ ...form, count: Math.min(Number(e.target.value), variationInfo.total) })}
-                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
-                    />
+                  <Label text="Map Variations" hint={`Max unique layouts: ${variationInfo.total}`}>
+                    <div className="relative">
+                      <input type="number" min={1} max={variationInfo.total} value={form.count}
+                        onChange={(e) => setForm({ ...form, count: Math.min(Number(e.target.value), variationInfo.total) })}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                      />
+                      <div className="absolute right-0 top-0 bottom-0 flex items-center px-3 pointer-events-none text-xs text-slate-500">
+                        / {variationInfo.total}
+                      </div>
+                    </div>
                   </Label>
                   <Label text="Runs / Map" hint="Seeds per map">
                     <input type="number" min={1} max={5} value={form.runs}
@@ -296,25 +306,26 @@ export default function SweepLabPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <Label text="Sim Duration" hint="Minutes (1260 = 21h)">
+                  <Label text="Sim Duration" hint="Minutes (1200 = 20h)">
                     <input type="number" min={60} value={form.minutes}
                       onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })}
                       className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
                     />
                   </Label>
-                  <Label text="Concurrency" hint="Threads">
-                    <input type="number" min={1} max={32} value={form.workers}
-                      onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
+                  <Label text="Agent Count" hint="Target population">
+                    <input type="text" value={form.agents}
+                      onChange={(e) => setForm({ ...form, agents: e.target.value })}
                       className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
                     />
                   </Label>
                 </div>
 
-                <Label text="Base Seed" hint="Random seed">
-                  <input type="text" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })}
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono text-slate-300 focus:border-emerald-500/50 outline-none transition-all"
-                  />
-                </Label>
+                {/* Seed Input Hidden (Fixed to random/default internally or just not shown) */}
+                {/* <Label text="Base Seed" hint="Random seed">
+                    <input type="text" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })}
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono text-slate-300 focus:border-emerald-500/50 outline-none transition-all"
+                    />
+                  </Label> */}
 
                 {/* Advanced Map Params Collapsible */}
                 <details className="group bg-black/20 rounded-lg border border-white/5 open:bg-black/40 transition-colors">
@@ -341,23 +352,27 @@ export default function SweepLabPage() {
                         <input placeholder="Exit (10,12)" value={form.exitWidth} onChange={e => setForm({ ...form, exitWidth: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
                       </div>
                     </Label>
+
+                    <Label text="Concurrency" hint="Parallel Workers">
+                      <input type="number" min={1} max={32} value={form.workers}
+                        onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
+                        className="w-full bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-xs focus:border-emerald-500/50 outline-none"
+                      />
+                    </Label>
                   </div>
                 </details>
 
-                {/* Weight Controls */}
+                {/* Weight Controls - Read Only */}
                 <div className="bg-black/20 rounded-lg p-3 border border-white/5">
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-3">Scoring Weights</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-3">Scoring Weights (Fixed)</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                     {[
-                      { l: "Cap", k: "wCapacity" }, { l: "Util", k: "wUtil" }, { l: "Cong", k: "wCongestion" },
-                      { l: "Path", k: "wPath" }, { l: "Evac", k: "wEvacuation" }, { l: "Wait", k: "wWait" }
+                      { l: "Capacity", v: form.wCapacity }, { l: "Utilization", v: form.wUtil }, { l: "Congestion", v: form.wCongestion },
+                      { l: "Path Length", v: form.wPath }, { l: "Evacuation", v: form.wEvacuation }, { l: "Wait Time", v: form.wWait }
                     ].map((item) => (
-                      <div key={item.k} className="flex flex-col gap-1">
-                        <span className="text-[9px] text-slate-500 uppercase">{item.l}</span>
-                        <input type="number" step={0.05} value={(form as any)[item.k]}
-                          onChange={e => setForm({ ...form, [item.k]: Number(e.target.value) })}
-                          className="w-full bg-black/50 border border-white/10 rounded px-1.5 py-1 text-xs text-center focus:border-blue-500/50 outline-none"
-                        />
+                      <div key={item.l} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">{item.l}</span>
+                        <span className="font-mono text-slate-200 bg-white/5 px-1.5 rounded">{item.v.toFixed(2)}</span>
                       </div>
                     ))}
                   </div>

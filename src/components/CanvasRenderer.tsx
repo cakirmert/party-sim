@@ -173,20 +173,22 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
       bandHeight: Math.max(6, mp.bandHeight),
       bandCount: Math.max(0, mp.bandCount),
       dormRowGap: Math.max(1, Math.min(5, mp.dormRowGap)),
+      outsideHeight: 4,
+      exitWidth: Math.max(4, mp.exitWidth),
       seed,
       bar: {
         ...DEFAULT_RUNTIME_PARAMS.bar,
-        w: randInt(14, 18),
-        h: randInt(5, 8),
+        w: Math.max(4, mp.barWidth),
+        h: Math.max(4, mp.barHeight),
         side: randPick(["left", "right"]),
-        yOffset: randInt(-1, 1),
+        yOffset: 0,
       },
       gym: {
         ...DEFAULT_RUNTIME_PARAMS.gym,
-        w: randInt(8, 12),
-        h: randInt(4, 7),
+        w: Math.max(4, mp.gymWidth),
+        h: Math.max(4, mp.gymHeight),
         side: randPick(["left", "right"]),
-        yOffset: randInt(-1, 1),
+        yOffset: 0,
       },
     };
     const spec = buildSpecRuntime(engine.cfg.grid, params);

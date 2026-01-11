@@ -13,6 +13,12 @@ interface SimState {
     bandHeight: number;
     bandCount: number;
     dormRowGap: number;
+    // POI dimensions (matching sweep-lab)
+    barWidth: number;
+    barHeight: number;
+    gymWidth: number;
+    gymHeight: number;
+    exitWidth: number;
   };
   setMapParams: (p: Partial<SimState["mapParams"]>) => void;
   // agents & resets
@@ -43,6 +49,12 @@ export const useSimStore = create<SimState>((set) => ({
     bandHeight: 12,
     bandCount: 0,
     dormRowGap: 3,
+    // POI dimensions (matching sweep-lab defaults)
+    barWidth: 14,
+    barHeight: 6,
+    gymWidth: 10,
+    gymHeight: 5,
+    exitWidth: 10,
   },
   setMapParams: (p) => set((state) => ({ mapParams: { ...state.mapParams, ...p } })),
 

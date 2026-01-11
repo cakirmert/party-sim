@@ -30,7 +30,7 @@ export default function UIControls({ engineRef }: Props) {
   const setToast = useSimStore(s => s.setToast);
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const calculateMetricsRef = useRef<() => void>(() => {});
+  const calculateMetricsRef = useRef<() => void>(() => { });
 
   const handleStep = () => {
     const eng = engineRef.current;
@@ -77,8 +77,8 @@ export default function UIControls({ engineRef }: Props) {
   };
 
   const calculateMaxOccupancy = () => {
-    const eng = engineRef.current; 
-    
+    const eng = engineRef.current;
+
     const barRatio = eng?.maxBarOccupancy.map((occ) => {
       return occ / (eng.barBoundingBox?.tiles || 1);
     });
@@ -96,7 +96,7 @@ export default function UIControls({ engineRef }: Props) {
     const maxOccupancy = calculateMaxOccupancy();
     console.log({ roomsPath, corridorCongestion, maxOccupancy });
   };
-  
+
   calculateMetricsRef.current = calculateMetrics;
 
   useEffect(() => {
@@ -110,7 +110,7 @@ export default function UIControls({ engineRef }: Props) {
         frame = requestAnimationFrame(attach);
         return;
       }
-      
+
       unsub = eng.events.on((evt) => {
         if (evt.type === "WEEK_COMPLETED") {
           console.log("Week completed!");
@@ -122,7 +122,7 @@ export default function UIControls({ engineRef }: Props) {
       });
     };
     attach();
-    
+
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
       if (unsub) unsub();
@@ -174,9 +174,79 @@ export default function UIControls({ engineRef }: Props) {
       </div>
 
       {showMapParams && (
-        <div className="w-full grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 bg-slate-50 border border-slate-200 rounded p-2">
+        <div className="w-full grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 bg-slate-50 border border-slate-200 rounded p-2">
           <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Corridor width
+            Row Gap
+            <input
+              type="number"
+              min={1}
+              max={5}
+              value={mapParams.dormRowGap}
+              onChange={e => setMapParams({ dormRowGap: Number(e.target.value) })}
+              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+              title="Gap between stacked room rows (doors open into this)."
+            />
+          </label>
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Bar W×H
+            <div className="flex gap-1">
+              <input
+                type="number"
+                min={4}
+                max={24}
+                value={mapParams.barWidth}
+                onChange={e => setMapParams({ barWidth: Number(e.target.value) })}
+                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                title="Bar width"
+              />
+              <input
+                type="number"
+                min={4}
+                max={16}
+                value={mapParams.barHeight}
+                onChange={e => setMapParams({ barHeight: Number(e.target.value) })}
+                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                title="Bar height"
+              />
+            </div>
+          </label>
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Gym W×H
+            <div className="flex gap-1">
+              <input
+                type="number"
+                min={4}
+                max={20}
+                value={mapParams.gymWidth}
+                onChange={e => setMapParams({ gymWidth: Number(e.target.value) })}
+                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                title="Gym width"
+              />
+              <input
+                type="number"
+                min={4}
+                max={12}
+                value={mapParams.gymHeight}
+                onChange={e => setMapParams({ gymHeight: Number(e.target.value) })}
+                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                title="Gym height"
+              />
+            </div>
+          </label>
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Exit Width
+            <input
+              type="number"
+              min={4}
+              max={20}
+              value={mapParams.exitWidth}
+              onChange={e => setMapParams({ exitWidth: Number(e.target.value) })}
+              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+              title="Exit width at bottom of map."
+            />
+          </label>
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Corridor
             <input
               type="number"
               min={2}
@@ -184,31 +254,7 @@ export default function UIControls({ engineRef }: Props) {
               value={mapParams.corridorWidth}
               onChange={e => setMapParams({ corridorWidth: Number(e.target.value) })}
               className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-              title="Main vertical corridor width. Wider reduces room count but eases flow."
-            />
-          </label>
-          <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Cross height
-            <input
-              type="number"
-              min={0}
-              max={4}
-              value={mapParams.crossHeight}
-              onChange={e => setMapParams({ crossHeight: Number(e.target.value) })}
-              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-              title="Horizontal corridor thickness between bands."
-            />
-          </label>
-          <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Band height
-            <input
-              type="number"
-              min={8}
-              max={14}
-              value={mapParams.bandHeight}
-              onChange={e => setMapParams({ bandHeight: Number(e.target.value) })}
-              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-              title="Height of each dorm band. Taller bands fit more stacked rows."
+              title="Main vertical corridor width."
             />
           </label>
           <label className="text-xs text-slate-600 flex flex-col gap-1">
@@ -221,18 +267,6 @@ export default function UIControls({ engineRef }: Props) {
               onChange={e => setMapParams({ bandCount: Number(e.target.value) })}
               className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
               title="Number of vertical bands (0 = auto-fill)."
-            />
-          </label>
-          <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Door corridor
-            <input
-              type="number"
-              min={1}
-              max={5}
-              value={mapParams.dormRowGap}
-              onChange={e => setMapParams({ dormRowGap: Number(e.target.value) })}
-              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-              title="Gap between stacked room rows (doors open into this)."
             />
           </label>
         </div>
