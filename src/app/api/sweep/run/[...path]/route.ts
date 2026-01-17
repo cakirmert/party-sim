@@ -52,7 +52,7 @@ export async function GET(
             // We'd need to return a blob/stream. For now, text/json is our main goal.
             // But let's handle it just in case.
             const buffer = await readFile(fullPath);
-            return new NextResponse(buffer, {
+            return new NextResponse(new Uint8Array(buffer), {
                 headers: { "Content-Type": "image/png" }
             });
         }
