@@ -1,4 +1,5 @@
 import { GridMap } from "./GridMap";
+import { ScoringMetrics } from "../scoring";
 import { Agent, AGENT_PROPS, DAY_NAMES } from "./Agent";
 import type { EngineConfig, Vec2, BaseSpec, Tile, TileTag, AgentState, WanderTarget, PathMetric, BoundingBox } from "./Types";
 import { RNG } from "./RNG";
@@ -30,6 +31,7 @@ export interface OutRecord {
   untilMinute: number;
   exitPos: Vec2;
   roomId?: string;
+  exitTime?: number;
 }
 
 export type timeOfDay = "morning" | "afternoon" | "night";
@@ -146,17 +148,130 @@ export class Engine {
 
   // ——— Core API ———
 
+  get paused() { return this.clock.isPaused; }
+
+  /**
+   * Return current metrics snapshot for live scoring.
+   * Approximates metrics that are usually calculated at end of run.
+   */
+  getLiveMetrics(): ScoringMetrics {
+    const agents = this.getAgents();
+    if (agents.length === 0) {
+      return {
+        roomCapacity: this.getRoomCapacity(),
+        actualAgents: 0,
+        corridorP95: 0,
+        avgPathLength: 0,
+        stuckRate: 0,
+        barOccupancyRatio: 0,
+        gymOccupancyRatio: 0,
+        evacuationRate: 0,
+        avgExitTime: 0,
+      };
+    }
+
+    // Agent count
+    const actualAgents = agents.length;
+    const roomCapacity = this.getRoomCapacity();
+
+    // Corridor Density (P95 of collected values so far)
+    let corridorP95 = 0;
+    if (this.corridorDensityValues.length > 0) {
+      // Basic approximation if array is large, or just take mean?
+      // Sorting huge array every frame is bad. 
+      // We only call this throttled.
+      const sorted = [...this.corridorDensityValues].sort((a, b) => a - b);
+      const idx = Math.floor(sorted.length * 0.95);
+      corridorP95 = sorted[idx];
+    }
+
+    // Path Length (Avg of completed paths)
+    let avgPathLength = 0;
+    if (this.pathsMetrics.length > 0) {
+      avgPathLength = this.pathsMetrics.reduce((s, p) => s + p.length, 0) / this.pathsMetrics.length;
+    }
+
+    // Stuck Rate (Current agents with stuck/waiting status / total)
+    // We approximate 'stuck' as agents waiting > 20 ticks (10s at 2 ticks/s? No, ticks are 0.5m?)
+    // Using stuckTicks from Agent.
+    const stuckCount = agents.filter(a => a.stuckTicks > 10).length;
+    const stuckRate = stuckCount / actualAgents;
+
+    // Occupancy (Max so far? Or Current?)
+    // Live score should probably reflect *current* performance or *cumulative* performance?
+    // "Live score" implies "how is it going".
+    // Let's use the max recorded so far to match the 'peak' nature of occupancy scoring.
+    const maxBar = Math.max(...this.maxBarOccupancy, this.poiOccupancy.BAR);
+    const maxGym = Math.max(...this.maxGymOccupancy, this.poiOccupancy.GYM);
+
+    // We need map tiles for ratio
+    // barBoundingBox might be undefined if not set? (It is set in resetWorld)
+    const barTiles = this.barBoundingBox?.tiles || 1;
+    const gymTiles = this.gymBoundingBox?.tiles || 1;
+
+    const barOccupancyRatio = maxBar / barTiles;
+    const gymOccupancyRatio = maxGym / gymTiles;
+
+    // Evacuation (only relevant if evac mode active?)
+    // We can return 0 if not finished.
+    // Or if in evac mode, return current progress.
+    const evacs = this.outList.length;
+    const evacuationRate = this.outList.length / (this.outList.length + agents.length || 1);
+
+    // Avg Exit Time
+    let avgExitTime = 0;
+    if (this.outList.length > 0) {
+      avgExitTime = this.outList.reduce((s, a) => s + (a.exitTime || 0), 0) / this.outList.length;
+    }
+
+    return {
+      roomCapacity,
+      actualAgents,
+      corridorP95,
+      avgPathLength,
+      stuckRate,
+      barOccupancyRatio,
+      gymOccupancyRatio,
+      evacuationRate,
+      avgExitTime
+    };
+  }
+
   /**
    * Reset world to a generated dorm for `count` agents.
-   * - Rebuilds from `baseSpec`
+   * - Rebuilds from `baseSpec` (unless reuseMap is true)
    * - Generates dorm (rooms+corridor) as LOCKED
    * - Spawns `count` agents (one per room) at 06:00
    */
-  resetWorld(baseSpec: BaseSpec, count: number) {
-    // Rebuild map from base spec
-    this.map = GridMap.buildFromSpec(this.cfg.grid, baseSpec);
-    this.setCorridorBoundingBoxes(baseSpec);
-    // Clear sim
+  resetWorld(baseSpec: BaseSpec, count: number, reuseMap = false) {
+    if (!reuseMap || !this.map) {
+      // Rebuild map from base spec
+      this.map = GridMap.buildFromSpec(this.cfg.grid, baseSpec);
+      this.setCorridorBoundingBoxes(baseSpec);
+      this.roomSpawns = this.generateDorm(count); // This fills map with rooms
+
+      this.barBoundingBox = {
+        x0: baseSpec.barRect.x,
+        y0: baseSpec.barRect.y,
+        x1: baseSpec.barRect.x + baseSpec.barRect.w,
+        y1: baseSpec.barRect.y + baseSpec.barRect.h,
+        tiles: baseSpec.barRect.w * baseSpec.barRect.h,
+      }
+
+      this.gymBoundingBox = {
+        x0: baseSpec.gymRect.x,
+        y0: baseSpec.gymRect.y,
+        x1: baseSpec.gymRect.x + baseSpec.gymRect.w,
+        y1: baseSpec.gymRect.y + baseSpec.gymRect.h,
+        tiles: baseSpec.gymRect.w * baseSpec.gymRect.h,
+      }
+    } else {
+      // We are strictly reusing the map structure. 
+      // roomSpawns should already be populated from the previous generation.
+      // We assume baseSpec is compatible/same.
+    }
+
+    // Clear sim status
     this.agents.clear();
     this.outList.length = 0;
     this.tickCount = 0;
@@ -166,7 +281,16 @@ export class Engine {
     this.poiOccupancy.BAR = 0;
     this.poiOccupancy.GYM = 0;
     this.poiCenters.clear();
-    this.corridorTiles = [];
+    // corridorTiles is map property? No, it's private. If we reuse map, we assume corridorTiles is preserved.
+    // Wait, generateDorm populates corridorTiles. If REUSE map, we must NOT clear it.
+    if (!reuseMap) {
+      // generateDorm already cleared and repopulated it if we called it.
+      // If reuseMap, we keep it.
+    } else {
+      // If reusing map, ensure we don't hold stale state if any?
+      // Metrics should be reset.
+    }
+
     this.pathsMetrics.length = 0;
     this.density = undefined;
     this.densityTimer = 0;
@@ -175,10 +299,7 @@ export class Engine {
     this.ticksThisSecond = 0;
     this.lastTicksPerSecond = 0;
     this.lastDensityRecomputes = 0;
-    // Stable randomness for same seed
-    // (we could allow user to change seed—left as cfg.seed)
-    // Generate dorm & room spawns
-    this.roomSpawns = this.generateDorm(count);
+
     this.resetMetrics();
 
     const mapVersion = this.map.getVersion();
@@ -196,22 +317,6 @@ export class Engine {
       if (!this.cfg.headless || this.cfg.emitEvents) {
         this.events.emit({ type: "AGENT_ADDED", id: a.id });
       }
-    }
-
-    this.barBoundingBox = {
-      x0: baseSpec.barRect.x,
-      y0: baseSpec.barRect.y,
-      x1: baseSpec.barRect.x + baseSpec.barRect.w,
-      y1: baseSpec.barRect.y + baseSpec.barRect.h,
-      tiles: baseSpec.barRect.w * baseSpec.barRect.h,
-    }
-
-    this.gymBoundingBox = {
-      x0: baseSpec.gymRect.x,
-      y0: baseSpec.gymRect.y,
-      x1: baseSpec.gymRect.x + baseSpec.gymRect.w,
-      y1: baseSpec.gymRect.y + baseSpec.gymRect.h,
-      tiles: baseSpec.gymRect.w * baseSpec.gymRect.h,
     }
   }
 
@@ -395,8 +500,8 @@ export class Engine {
 
     const center = this.isMax(gymCoeff, [barCoeff, outsideCoeff, roomCoeff]) ? "GYM"
       : this.isMax(barCoeff, [gymCoeff, outsideCoeff, roomCoeff]) ? "BAR"
-      : this.isMax(outsideCoeff, [gymCoeff, barCoeff, roomCoeff]) ? "OUTSIDE"
-        : "ROOM";
+        : this.isMax(outsideCoeff, [gymCoeff, barCoeff, roomCoeff]) ? "OUTSIDE"
+          : "ROOM";
 
     const agentRoom = parseInt(agent.roomId?.split("R")[1] || "0", 10);
     const isRoom = center === "ROOM";

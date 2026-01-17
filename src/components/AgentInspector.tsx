@@ -21,7 +21,7 @@ type InspectorSnapshot = {
 };
 
 export default function AgentInspector({ engineRef }: Props) {
-  const selectedId = useSimStore(s=>s.selectedAgentId);
+  const selectedId = useSimStore(s => s.selectedAgentId);
   const [snapshot, setSnapshot] = useState<InspectorSnapshot | null>(null);
 
   const fmtTime = (mins: number) => {
@@ -65,16 +65,31 @@ export default function AgentInspector({ engineRef }: Props) {
       }
       setSnapshot(null);
     };
-    const unsub = eng.events.on(()=>sync());
+    const unsub = eng.events.on(() => sync());
     sync();
     return () => { unsub(); };
   }, [engineRef, selectedId]);
 
   if (!selectedId) return null;
+  const onClose = () => useSimStore.getState().setSelectedAgentId(null);
+
   const Shell: React.FC<{ children: React.ReactNode; title?: string }> = ({ children, title }) => (
-    <div className="text-sm bg-white border border-slate-200 rounded-lg p-3 shadow-sm text-slate-700">
-      {title && <div className="font-semibold mb-1 text-slate-800">{title}</div>}
-      {children}
+    <div className="absolute top-20 right-4 w-60 text-sm bg-white/95 backdrop-blur border border-slate-200 rounded-lg shadow-xl z-50 animate-in fade-in slide-in-from-right-4">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50/50 rounded-t-lg">
+        <span className="font-semibold text-slate-800">{title}</span>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-200 rounded transition"
+          title="Clear Selection"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div className="p-3 text-slate-700 space-y-1">
+        {children}
+      </div>
     </div>
   );
 

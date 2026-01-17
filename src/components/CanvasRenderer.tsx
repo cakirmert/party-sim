@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Engine } from "@/lib/engine/Engine";
+import { calculateLiveScore } from "@/lib/scoring";
 import { Camera } from "@/lib/engine/Camera";
 import type { BaseSpec, EngineConfig, Tile, TileTag, Vec2 } from "@/lib/engine/Types";
 import { useSimStore } from "@/lib/state/useSimStore";
@@ -453,6 +454,77 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
       }
     }
 
+    // Fog of War / Vision Highlight for Selected Agent
+    if (selectedAgentId) {
+      const agent = agents.find(a => a.id === selectedAgentId);
+      if (agent) {
+        ctx.save();
+        // 1. Fill entire world with semi-transparent darkness
+        // We need to use "destination-out" or "xor" to cut holes?
+        // Or simpler: Draw darkness over everything, then use composite operation to clear areas?
+        // Actually, it's easier to:
+        // 1. Create a path of the 'darkness' (Full Rect minus Visible Rects) -> Complicated.
+        // 2. Draw black rect full screen. Set composite to 'destination-out' and draw visible circles.
+
+        // BUT we want to darken the underlying map/agents, so we draw black with alpha on top.
+
+        // Steps:
+        // a. Draw Dark Overlay (e.g. 0.5 alpha black)
+        // b. 'Cut out' visible areas using 'destination-out' to reveal map below? 
+        //    No, that would erase the map too if we are drawing on the same canvas.
+        //    We want to ERASE the DARK OVERLAY where the agent sees.
+        //    So:
+        //    - We need a temporary 'darkness' layer or we draw darkness then cut?
+        //    - If we draw darkness directly on ctx, 'destination-out' will erase the underlying pixels (the map).
+
+        // Solution: Draw darkness using a path that EXCLUDES the visible areas?
+        // Or use 'clip' region inverted?
+        // Easiest is to draw a BIG shape with holes (using winding rule).
+        // Outer rect (huge) + Inner rects (visible areas) in reverse winding?
+        // Canvas supports `evenodd` fill rule. Draw outer rect, then visible rects.
+
+        ctx.beginPath();
+        // Outer world bounds
+        ctx.rect(0, 0, engine.map.width * ppt, engine.map.height * ppt);
+
+        // Vision Blobs (Visualizing what agent "knows"):
+        // 1. Own Room (if known)
+        if (agent.roomId) {
+          // We need room coords. Map doesn't index rooms by ID easily?
+          // Wait, we generate rooms. Engine might not have quick lookup.
+          // But we have map tiles. We assume agent knows its room LOC.
+          // For now, let's just show Current Position Visibility.
+        }
+
+        // 2. Current Position with Radius
+        const cx = (agent.pos.x + 0.5) * ppt;
+        const cy = (agent.pos.y + 0.5) * ppt;
+        const r = 8 * ppt; // Vision radius
+        ctx.arc(cx, cy, r, 0, Math.PI * 2, true); // true = counter-clockwise (hole)
+
+        // 3. Known POIs (Bar, Gym, Exit)?
+        // Agent knows general direction, maybe we highlight them?
+        // Let's just highlight POI centers if we know them.
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        ctx.fill("evenodd"); // This fills the parts between outer rect and the holes
+
+        // Optional: Draw Line to Dest?
+        if (agent.dest) {
+          ctx.strokeStyle = "rgba(255, 255, 0, 0.5)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo((agent.dest.x + 0.5) * ppt, (agent.dest.y + 0.5) * ppt);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        ctx.restore();
+      }
+    }
+
     if (smoothRender && seenIds) {
       for (const id of Array.from(renderPositions.keys())) {
         if (!seenIds.has(id)) renderPositions.delete(id);
@@ -474,6 +546,9 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
       ctx.fillText(label, cx, cy);
     }
     ctx.restore();
+
+    // Removed Time & Stats Overlay (Time, Density, Count) as requested.
+    // TPS will be moved to UI.
 
     const minutes = engine.tod.minute;
     let checkPeakTime = false;
@@ -500,6 +575,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
       });
     }
 
+    // Perf stats logic kept for state update if needed, but not drawing.
     const statsSample = engine.getPerfStats();
     const nextStats = {
       ticksPerSecond: statsSample.ticksPerSecond,
@@ -514,6 +590,26 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
     ) {
       perfStatsRef.current = nextStats;
       setPerfStats(nextStats);
+
+      // --- Store Updates for UI ---
+      const mins = engine.tod.minute;
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+
+      useSimStore.getState().setSimTime(timeStr);
+      useSimStore.getState().setTps(Math.round(nextStats.ticksPerSecond));
+
+      // Live Scoring update (throttled check ~30 ticks)
+      if (engine.getTick() % 30 === 0) {
+        if (mins > 420 || mins < 300) { // Valid data range logic
+          const m = engine.getLiveMetrics();
+          const score = calculateLiveScore(m);
+          useSimStore.getState().setLiveScore(score);
+        } else {
+          useSimStore.getState().setLiveScore(null);
+        }
+      }
     }
 
     ctx.restore(); // end world transform
@@ -703,7 +799,13 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
     const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
-    camera.zoomAt({ x: px, y: py }, factor);
+
+    // Custom zoom logic to respect min/max
+    const currentZoom = camera.zoom;
+    const nextZoom = Math.max(0.05, Math.min(10, currentZoom * factor));
+    if (nextZoom !== currentZoom) {
+      camera.zoomAt({ x: px, y: py }, nextZoom / currentZoom);
+    }
   }
 
   function handleClickSelect(e: React.MouseEvent<HTMLCanvasElement>) {

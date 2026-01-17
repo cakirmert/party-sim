@@ -36,6 +36,15 @@ interface SimState {
   // UI messages
   toast?: string | null;
   setToast: (msg: string | null) => void;
+
+  simTime: string;
+  setSimTime: (t: string) => void;
+  tps: number;
+  setTps: (t: number) => void;
+
+  // live score
+  liveScore: any | null; // Using any to avoid complex type deps here for now, or import ScoreBreakdown
+  setLiveScore: (s: any | null) => void;
 }
 
 export const useSimStore = create<SimState>((set) => ({
@@ -43,6 +52,15 @@ export const useSimStore = create<SimState>((set) => ({
   paused: false,
   setSpeed: (s) => set({ speed: s }),
   setPaused: (p) => set({ paused: p }),
+
+  simTime: "06:00",
+  setSimTime: (t) => set({ simTime: t }),
+  tps: 0,
+  setTps: (t) => set({ tps: t }),
+
+  liveScore: null,
+  setLiveScore: (s) => set({ liveScore: s }),
+
   mapParams: {
     corridorWidth: 2,
     crossHeight: 0,

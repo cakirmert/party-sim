@@ -221,10 +221,10 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
   const w = cfg.weights || {
     capacity: 0.35,
     utilization: 0.20,
-    congestion: 0.15,
+    congestion: 0.30, // Merged Conestion (0.15) + Evacuation (0.15)
     path: 0.10,
-    evacuation: 0.15,
     wait: 0.05,
+    // evacuation removed as top-level
   };
 
   for (const item of items) {
@@ -233,21 +233,10 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
     // 2. Compute 0-100 Score for each Metric (Bell Curve grading)
     // Formula: 50 + (Z * 15), clamped to [0, 100]
 
-    // Capacity
-    // Capacity: Target is 150. Score based on proximity.
-    // We compute deviation from 150, then normalize (Lower deviation is better).
+    // Capacity: Target is 150.
     const capVal = m.roomCapacity || m.actualAgents;
     const capDist = Math.abs(capVal - 150);
-    // We need statistics of the *deviations* to z-score them properly behavior-wise relative to batch
-    // But sCap is stats of raw values. 
-    // Let's compute z-score of the raw value against mean, but that doesn't target 150.
-    // Simple approach: Use a fixed bell curve centered at 150?
-    // Or: Normalize deviation against batch deviation?
-    // Let's stick to the requested "closer to 150 is better".
-    // 100 - (dist / 1.5) ? If dist is 0, score 100. If dist is 50, score 66.
-    const scoreCap = Math.max(0, 100 - (capDist * 0.5)); // Simple linear penalty: 1 point off per 2 units away.
-    // e.g. 150 -> 100. 100 -> 75. 200 -> 75. 50 -> 50.
-
+    const scoreCap = Math.max(0, 100 - (capDist * 0.5));
 
     // Utilization (Bar & Gym)
     const zBar = normalizeZ(m.barOccupancyRatio, sBar.mean, sBar.stdDev, true);
@@ -258,15 +247,15 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
 
     const scoreUtil = (scoreBar + scoreGym) / 2;
 
-    // Congestion
+    // Congestion (Pure Density Component)
     const zCong = normalizeZ(m.corridorP95, sCong.mean, sCong.stdDev, true);
-    const scoreCong = Math.max(0, Math.min(100, 50 + zCong * 15));
+    const scoreCongDensity = Math.max(0, Math.min(100, 50 + zCong * 15));
 
     // Path
     const zPath = normalizeZ(m.avgPathLength, sPath.mean, sPath.stdDev, true);
     const scorePath = Math.max(0, Math.min(100, 50 + zPath * 15));
 
-    // Evacuation
+    // Evacuation (Component of Congestion)
     const zEvRate = normalizeZ((m as any).evacuationRate || 0, sEvRate.mean, sEvRate.stdDev, false);
     const scoreEvRate = Math.max(0, Math.min(100, 50 + zEvRate * 15));
 
@@ -275,18 +264,26 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
 
     const scoreEvac = scoreEvRate * 0.6 + scoreEvTime * 0.4;
 
+    // Composite Congestion Score
+    // 75% Density, 25% Evacuation
+    const scoreCongestionTotal = (scoreCongDensity * 0.75) + (scoreEvac * 0.25);
+
     // Wait/Stuck
     const zStuck = normalizeZ(m.stuckRate, sStuck.mean, sStuck.stdDev, true);
     const scoreStuck = Math.max(0, Math.min(100, 50 + zStuck * 15));
 
     // 3. Weighted Average of Component Scores
-    const totalWeight = w.capacity + w.utilization + w.congestion + w.path + w.evacuation + w.wait;
+    // use w.congestion for the composite score
+    // w.evacuation is processed inside congestion now
+    const totalWeight = w.capacity + w.utilization + w.congestion + w.path + w.wait;
+
+    // Normalize weights to sum to 1 if user config didn't
+
     const finalScore = (
       scoreCap * w.capacity +
       scoreUtil * w.utilization +
-      scoreCong * w.congestion +
+      scoreCongestionTotal * w.congestion +
       scorePath * w.path +
-      scoreEvac * w.evacuation +
       scoreStuck * w.wait
     ) / totalWeight;
 
@@ -296,9 +293,10 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
     item.scoreBreakdown = {
       capacity: Number(scoreCap.toFixed(1)),
       utilization: Number(scoreUtil.toFixed(1)),
-      congestion: Number(scoreCong.toFixed(1)),
+      congestion: Number(scoreCongestionTotal.toFixed(1)),
+      _density: Number(scoreCongDensity.toFixed(1)), // internal detail
+      _evac: Number(scoreEvac.toFixed(1)),           // internal detail
       path: Number(scorePath.toFixed(1)),
-      evacuation: Number(scoreEvac.toFixed(1)),
       wait: Number(scoreStuck.toFixed(1)),
     };
   }

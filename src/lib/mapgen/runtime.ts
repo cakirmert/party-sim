@@ -103,7 +103,7 @@ export function buildSpecRuntime(
   const margin = 3;
   const crossHeight = Math.max(0, params.crossHeight || 0);
   const outsideHeight = Math.max(2, params.outsideHeight || 3);
-  const rowGap = clamp(params.dormRowGap ?? 2, 1, 5);
+  const rowGap = clamp(params.dormRowGap ?? 2, 1, 4);
   const rng = mulberry32(seedFromString(params.seed || "map"));
   const usableBottom = grid.height - margin - outsideHeight - 1;
   const usableTop = margin;
@@ -339,7 +339,7 @@ export function buildSpecRuntime(
     outsideRect,
     exitRect,
     wallRects,
-    dormRowGap: clamp(params.dormRowGap ?? 1, 1, 5),
+    dormRowGap: clamp(params.dormRowGap ?? 1, 1, 4),
     doorTiles,
   };
 }

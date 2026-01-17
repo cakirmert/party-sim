@@ -9,6 +9,7 @@ export class Clock {
   setSpeed(mult: number) { this.speed = mult; }
   setPaused(p: boolean) { this.paused = p; }
   togglePause() { this.paused = !this.paused; }
+  get isPaused() { return this.paused; }
 
   advance(nowSec: number): number {
     if (!this.lastReal) this.lastReal = nowSec;
