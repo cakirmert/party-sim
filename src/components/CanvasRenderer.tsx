@@ -60,6 +60,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
   const [miniVisible, setMiniVisible] = useState(false);
   const [mapUrl, setMapUrl] = useState<string | null>(null);
   const resetSeedRef = useRef(0);
+  const prevMapParamsRef = useRef<string>("");
 
   const resetCamera = useCallback(() => {
     const canvas = canvasRef.current;
@@ -167,6 +168,16 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
     const seed = `reset-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const store = useSimStore.getState();
     const mp = store.mapParams;
+    const mpStr = JSON.stringify(mp);
+
+    let reuseMap = false;
+    // Check if map params changed since last reset
+    if (prevMapParamsRef.current === mpStr) {
+      reuseMap = true;
+    } else {
+      prevMapParamsRef.current = mpStr;
+    }
+
     const params: Required<RuntimeVariantParams> = {
       ...DEFAULT_RUNTIME_PARAMS,
       corridorWidth: Math.max(2, mp.corridorWidth),
@@ -194,17 +205,26 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
     };
     const spec = buildSpecRuntime(engine.cfg.grid, params);
     setBaseSpec(spec);
-    const storeAfterGen = useSimStore.getState();
-    engine.resetWorld(spec, agentCount);
+
+    // Use current store agentCount, or strictly the one from the time of invocation if we wanted, 
+    // but store.getState() is fine.
+    const currentAgentCount = store.agentCount;
+
+    engine.resetWorld(spec, currentAgentCount, reuseMap);
+
     const cap = engine.getRoomCapacity();
-    storeAfterGen.setCapacity(cap);
-    const desired = Math.min(storeAfterGen.agentCount, cap, storeAfterGen.maxAgents);
-    if (desired !== agentCount) {
-      storeAfterGen.setAgentCount(desired);
-      engine.resetWorld(spec, desired);
+    // Start fresh store instance to avoid stale closure
+    const storeAfter = useSimStore.getState();
+    storeAfter.setCapacity(cap);
+
+    // Ensure agent count respects capacity/max
+    const desired = Math.min(currentAgentCount, cap, storeAfter.maxAgents);
+    if (desired !== currentAgentCount) {
+      storeAfter.setAgentCount(desired);
+      engine.resetWorld(spec, desired, true); // reusing map for adjustment
     }
     resetCamera();
-  }, [resetNonce, resetCamera, agentCount, engineRef]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resetNonce, resetCamera, engineRef]); // REMOVED agentCount from deps
 
   useEffect(() => {
     if (!engine) return;
@@ -802,7 +822,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
 
     // Custom zoom logic to respect min/max
     const currentZoom = camera.zoom;
-    const nextZoom = Math.max(0.05, Math.min(10, currentZoom * factor));
+    const nextZoom = Math.max(0.01, Math.min(10, currentZoom * factor));
     if (nextZoom !== currentZoom) {
       camera.zoomAt({ x: px, y: py }, nextZoom / currentZoom);
     }
@@ -892,11 +912,6 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
             style={{ width: 160, height: 96 }}
           />
         )}
-        <div className="pointer-events-none absolute left-3 top-3 z-10 rounded border border-slate-200 bg-white/90 px-2 py-1 text-xs font-mono text-slate-700 shadow-sm">
-          <div>Ticks/s: {perfStats.ticksPerSecond}</div>
-          <div>Agents: {perfStats.agentCount}</div>
-          <div>Density/s: {perfStats.densityRecomputesPerSecond}</div>
-        </div>
       </div>
     </div>
   );

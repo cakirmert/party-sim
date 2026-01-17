@@ -32,7 +32,7 @@ export default function Page() {
       if (eng) {
         const minutes = eng.tod.minute;
         const hh = Math.floor(minutes / 60).toString().padStart(2, "0");
-        const mm = (minutes % 60).toString().padStart(2, "0");
+        const mm = Math.floor(minutes % 60).toString().padStart(2, "0");
         setTimeLabel(`${hh}:${mm}:00`);
         setDayLabel(DAY_NAMES[eng.tod.dayOfWeek]);
       } else {
