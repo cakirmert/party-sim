@@ -23,6 +23,7 @@ export default function UIControls({ engineRef }: Props) {
   const maxAgents = useSimStore(s => s.maxAgents);
   const setAgentCount = useSimStore(s => s.setAgentCount);
   const bumpReset = useSimStore(s => s.bumpReset);
+  const bumpRestart = useSimStore(s => s.bumpRestart);
   const mapParams = useSimStore(s => s.mapParams);
   const setMapParams = useSimStore(s => s.setMapParams);
   const [showMapParams, setShowMapParams] = React.useState(false);
@@ -40,8 +41,8 @@ export default function UIControls({ engineRef }: Props) {
     eng.stepOnce();
   };
 
-  const simTime = useSimStore(s => s.simTime);
   const tps = useSimStore(s => s.tps);
+  const [showScore, setShowScore] = React.useState(true);
 
   const calculateRoomsPath = (): number => {
     const eng = engineRef.current;
@@ -142,9 +143,6 @@ export default function UIControls({ engineRef }: Props) {
     const loop = () => {
       frameId = requestAnimationFrame(loop);
       tick++;
-      // Poll store for live score to avoid passing it via props if we want, 
-      // but here we are using local state which is fine. 
-      // Actually, we should sync with store liveScore if it exists.
       const storeScore = useSimStore.getState().liveScore;
       if (storeScore !== liveScore) {
         setLiveScore(storeScore);
@@ -157,33 +155,35 @@ export default function UIControls({ engineRef }: Props) {
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Top Bar: Controls */}
-      <div className="flex flex-wrap items-center gap-2 bg-white/90 p-3 rounded-lg border border-slate-200 shadow-sm relative z-50">
 
-        {/* Time & Playback */}
-        <div className="flex items-center gap-3 bg-slate-100 rounded-lg p-1.5 border border-slate-200">
-          <div className="flex flex-col items-center px-1 min-w-[70px]">
-            <span className="text-2xl font-bold font-mono leading-none text-slate-800">{simTime}</span>
-            <span className="text-[9px] text-slate-400 font-bold tracking-wider">TPS: {tps}</span>
-          </div>
-          <div className="h-8 w-[1px] bg-slate-300"></div>
-          <div className="flex items-center gap-1">
-            <button
-              className={`px-3 py-1 rounded transition font-medium ${!paused ? "bg-white text-emerald-600 shadow-sm" : "text-slate-600 hover:text-slate-800"}`}
-              onClick={() => setPaused(false)}
-            >
-              Play
-            </button>
-            <button
-              className={`px-3 py-1 rounded transition font-medium ${paused ? "bg-white text-rose-600 shadow-sm" : "text-slate-600 hover:text-slate-800"}`}
-              onClick={() => setPaused(true)}
-            >
-              Pause
-            </button>
-          </div>
+      {/* Top Bar: Controls */}
+      <div className="flex flex-wrap items-center gap-3 bg-white/90 p-4 rounded-xl border border-slate-200 shadow-sm relative z-50">
+
+        {/* Playback Controls */}
+        <div className="flex items-center gap-2 bg-slate-100/50 rounded-lg p-1 border border-slate-200">
+          <button
+            className={`px-4 py-2 rounded-lg transition font-bold text-sm ${!paused ? "bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"}`}
+            onClick={() => setPaused(false)}
+          >
+            PLAY
+          </button>
+          <button
+            className={`px-4 py-2 rounded-lg transition font-bold text-sm ${paused ? "bg-white text-rose-500 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"}`}
+            onClick={() => setPaused(true)}
+          >
+            PAUSE
+          </button>
         </div>
 
-        <button className="px-3 py-1.5 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition text-xs font-medium" onClick={handleStep}>
+        {/* TPS Display */}
+        <div className="flex flex-col items-start px-2" title="Ticks Per Second: Measures simulation speed performance">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">TPS</span>
+          <span className="text-xl font-mono font-bold text-slate-700 leading-none">{tps}</span>
+        </div>
+
+        <div className="w-px h-8 bg-slate-200 mx-1"></div>
+
+        <button className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition text-sm font-semibold shadow-sm" onClick={handleStep}>
           Step
         </button>
 
@@ -221,48 +221,80 @@ export default function UIControls({ engineRef }: Props) {
             onChange={(e) => setAgentCount(Number(e.target.value))}
             className="w-16 bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm text-right"
           />
-          <button className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-200 transition text-xs font-semibold" onClick={() => bumpReset()}>
+          <button className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-200 transition text-xs font-semibold" onClick={() => bumpRestart()}>
             Apply
           </button>
 
-          <div className="w-[1px] h-6 bg-slate-300 mx-1"></div>
+          <div className="w-px h-8 bg-slate-200 mx-2"></div>
 
-          <button className="px-2 py-1 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 transition text-xs" onClick={() => {
+          <button className="px-4 py-2 rounded-lg bg-orange-50 border border-orange-200 text-orange-700 hover:bg-orange-100 transition text-sm font-semibold shadow-sm" onClick={() => {
             // Trigger full reset if needed, or just let user change map params to force it
             bumpReset();
           }}>
-            Reset
+            Reset Map
           </button>
 
-          <button className="px-2 py-1 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 transition text-xs" onClick={() => setShowMapParams(v => !v)}>
-            {showMapParams ? "Hide Params" : "Map Params"}
-          </button>
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              className={`px-3 py-2 rounded-lg border transition text-xs font-semibold flex items-center gap-1 ${showMapParams ? "bg-indigo-50 border-indigo-200 text-indigo-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+              onClick={() => setShowMapParams(v => !v)}
+            >
+              Map Params
+            </button>
+            <button
+              className={`px-3 py-2 rounded-lg border transition text-xs font-semibold flex items-center gap-1 ${showScore ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+              onClick={() => setShowScore(v => !v)}
+            >
+              Live Score
+            </button>
+          </div>
         </div>
-
-        {/* Live Score Display */}
-        {liveScore && (
-          <div className="ml-auto flex items-center gap-4 px-3 py-1.5 bg-slate-800 text-slate-100 rounded shadow-lg border border-slate-700">
-            <div className="flex flex-col items-center leading-tight">
-              <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Total Score</span>
-              <span className={`text-2xl font-bold ${liveScore.total >= 80 ? "text-emerald-400" : liveScore.total >= 50 ? "text-amber-400" : "text-rose-400"}`}>
-                {Number(liveScore.total).toFixed(0)}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 text-xs border-l border-slate-600 pl-3">
-              <ScoreBar label="Space Usage" val={liveScore.capacity} color="text-blue-400" />
-              <ScoreBar label="Flow Eff." val={liveScore.path} color="text-purple-400" />
-              <ScoreBar label="Congestion" val={liveScore.congestion} color="text-amber-400" />
-              <ScoreBar label="Utilization" val={liveScore.utilization} color="text-cyan-400" />
-            </div>
-          </div>
-        )}
-        {!liveScore && (
-          <div className="ml-auto px-3 py-1 text-xs text-slate-500 italic">
-            Gathering data (Wait 1h)...
-          </div>
-        )}
-
       </div>
+
+      {/* Live Score Panel (Light Theme) */}
+      {showScore && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 shadow-sm">
+          {!liveScore ? (
+            <div className="text-sm text-slate-500 italic py-2">Waiting for scoring data (starts at 06:00)...</div>
+          ) : (
+            <div className="flex flex-wrap items-stretch gap-6">
+              <div className="flex flex-col justify-center pr-6 border-r border-slate-200">
+                <span className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-1">Total Score</span>
+                <span className={`text-4xl font-black ${liveScore.total >= 80 ? "text-emerald-500" : liveScore.total >= 50 ? "text-amber-500" : "text-rose-500"}`}>
+                  {Number(liveScore.total).toFixed(0)}
+                </span>
+              </div>
+
+              <div className="flex-1 grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <ScoreCard
+                  label="Capacity"
+                  val={liveScore.capacity}
+                  sub="Occupancy vs Capacity"
+                  color="bg-blue-500"
+                />
+                <ScoreCard
+                  label="Path Efficiency"
+                  val={liveScore.path}
+                  sub="Avg. Path Overhead"
+                  color="bg-indigo-500"
+                />
+                <ScoreCard
+                  label="Congestion"
+                  val={liveScore.congestion}
+                  sub="Congestion"
+                  color="bg-amber-500"
+                />
+                <ScoreCard
+                  label="Room Usage"
+                  val={liveScore.utilization}
+                  sub="Room Occupancy vs Capacity"
+                  color="bg-cyan-500"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Map Params Panel */}
       {showMapParams && (
@@ -395,17 +427,18 @@ export default function UIControls({ engineRef }: Props) {
   );
 }
 
-function ScoreBar({ label, val, color }: { label: string, val: number, color: string }) {
+function ScoreCard({ label, val, sub, color }: { label: string, val: number, sub: string, color: string }) {
   const w = Math.min(100, Math.max(0, val));
   return (
-    <div className="flex flex-col w-20">
-      <div className="flex justify-between text-[9px] text-slate-400 uppercase mb-0.5">
-        <span>{label}</span>
-        <span className={color}>{val}</span>
+    <div className="flex flex-col gap-1 min-w-[120px]">
+      <div className="flex justify-between items-baseline">
+        <span className="text-sm font-bold text-slate-700">{label}</span>
+        <span className="text-sm font-mono font-medium text-slate-500">{val.toFixed(0)}</span>
       </div>
-      <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-500 ${color.replace('text-', 'bg-')}`} style={{ width: `${w}%` }}></div>
+      <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${w}%` }}></div>
       </div>
+      <span className="text-[10px] text-slate-400">{sub}</span>
     </div>
   )
 }

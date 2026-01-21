@@ -69,7 +69,9 @@ export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
     // Let's make it *1000 => 10% -> 0.
     const scoreStuck = Math.max(0, 100 - (m.stuckRate * 1000));
 
-    const scoreCongestionTotal = (scoreCongDensity * 0.50) + (scoreEvac * 0.25) + (scoreStuck * 0.25);
+    // Integrated Congestion: Density + Evacuation + Stuck
+    // Merging Evacuation as a key part of "Congestion" (Exit Scenario).
+    const scoreCongestionTotal = (scoreCongDensity * 0.40) + (scoreEvac * 0.40) + (scoreStuck * 0.20);
 
     // Path: Lower is better. 
     // Optimal path 20. 

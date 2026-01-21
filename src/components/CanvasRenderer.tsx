@@ -91,7 +91,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
   useEffect(() => {
     const initialUrl = (() => {
       if (propMapUrl) return propMapUrl;
-      if (typeof window === "undefined") return "/maps/base.json";
+      if (typeof window === "undefined") return null; // Wait for client
       const params = new URLSearchParams(window.location.search);
       const urlParam = params.get("map");
       if (urlParam) return urlParam;
@@ -100,20 +100,38 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
       if (stored && !stored.includes("/api/sweep/map") && !stored.includes("/maps/generated")) {
         return stored;
       }
-      return "/maps/base.json";
+      return null;
     })();
     setMapUrl(initialUrl);
-    const cfg: EngineConfig = {
-      grid: { width: 96, height: 60 },
-      diagonal: true,
-      seed: "party-sim-seed",
-      baseTickRate: 20,
-      pixelsPerTile: 24,
-    };
-    const eng = new Engine(cfg);
-    setEngine(eng);
-    setEngine(eng);
-    engineRef.current = eng;
+
+    // If no initial map URL, immediately trigger generation by NOT setting baseSpec/engine from URL
+    if (!initialUrl && !engineRef.current) {
+      const cfg: EngineConfig = {
+        grid: { width: 128, height: 72 },
+        diagonal: true,
+        seed: "party-sim-seed",
+        baseTickRate: 20,
+        pixelsPerTile: 24,
+      };
+      const eng = new Engine(cfg); // Engine will init empty, but we'll trigger resetWorld shortly via effect or direct call?
+      // Actually, easiest is to let the resetNonce effect fire if we are "ready".
+      // But resetNonce effect relies on engine being present.
+      setEngine(eng);
+      engineRef.current = eng;
+
+    } else if (initialUrl && !engineRef.current) {
+      // Standard Load
+      const cfg: EngineConfig = {
+        grid: { width: 128, height: 72 },
+        diagonal: true,
+        seed: "party-sim-seed",
+        baseTickRate: 20,
+        pixelsPerTile: 24,
+      };
+      const eng = new Engine(cfg);
+      setEngine(eng);
+      engineRef.current = eng;
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -161,24 +179,31 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
   useEffect(() => { engine?.setSpeed(speed); }, [engine, speed]);
   useEffect(() => { engine?.setPaused(paused); }, [engine, paused]);
 
+  const restartNonce = useSimStore(s => s.restartNonce);
+
+  // Initial Generation Effect (when no mapUrl is present)
   useEffect(() => {
-    if (!engine) return;
+    if (engine && !_baseSpec && !mapUrl) {
+      // Generate default map immediately
+      const store = useSimStore.getState();
+      // synth reset
+      const seed = `init-${Date.now()}`;
+      const params = buildRuntimeParams(store.mapParams, seed);
+      const spec = buildSpecRuntime(engine.cfg.grid, params);
+      setBaseSpec(spec);
+      engine.resetWorld(spec, store.agentCount, false);
+      const cap = engine.getRoomCapacity();
+      store.setCapacity(cap);
+      store.setAgentCount(Math.min(store.agentCount, cap));
+      resetCamera();
+    }
+  }, [engine, _baseSpec, mapUrl, resetCamera]);
+
+  function buildRuntimeParams(mp: any, seed: string): Required<RuntimeVariantParams> {
     const randInt = (min: number, max: number) => Math.floor(min + Math.random() * (max - min + 1));
     const randPick = <T,>(arr: T[]): T => arr[randInt(0, arr.length - 1)];
-    const seed = `reset-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const store = useSimStore.getState();
-    const mp = store.mapParams;
-    const mpStr = JSON.stringify(mp);
 
-    let reuseMap = false;
-    // Check if map params changed since last reset
-    if (prevMapParamsRef.current === mpStr) {
-      reuseMap = true;
-    } else {
-      prevMapParamsRef.current = mpStr;
-    }
-
-    const params: Required<RuntimeVariantParams> = {
+    return {
       ...DEFAULT_RUNTIME_PARAMS,
       corridorWidth: Math.max(2, mp.corridorWidth),
       crossHeight: Math.max(0, mp.crossHeight),
@@ -203,28 +228,55 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
         yOffset: 0,
       },
     };
+  }
+
+  // Effect: Full Reset (New Map)
+  useEffect(() => {
+    if (!engine) return;
+    if (resetNonce === 0 && _baseSpec) return; // Skip initial mount if already handled
+    if (!_baseSpec && !mapUrl) return; // handled by initial gen effect
+
+    // If we have a mapUrl, resetNonce might mean "reload file" or "clear and regen".
+    // For now, if we are in "generator mode" (no mapUrl), we regen.
+    // If we have mapUrl, we probably just reload it? 
+    // User expectation: Reset Map -> Generate New Map (clearing loaded file).
+    // So we should verify if user wants to keep the FILE or generate new.
+    // Given "Refactoring Sim UI", we assume Reset Map means "Generate procedural".
+
+    // Force generation logic
+    setMapUrl(null); // Clear external map if any
+
+    const seed = `reset-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const store = useSimStore.getState();
+    const params = buildRuntimeParams(store.mapParams, seed);
+
     const spec = buildSpecRuntime(engine.cfg.grid, params);
     setBaseSpec(spec);
 
-    // Use current store agentCount, or strictly the one from the time of invocation if we wanted, 
-    // but store.getState() is fine.
-    const currentAgentCount = store.agentCount;
-
-    engine.resetWorld(spec, currentAgentCount, reuseMap);
+    engine.resetWorld(spec, store.agentCount, false); // reuseMap = false
 
     const cap = engine.getRoomCapacity();
-    // Start fresh store instance to avoid stale closure
-    const storeAfter = useSimStore.getState();
-    storeAfter.setCapacity(cap);
-
-    // Ensure agent count respects capacity/max
-    const desired = Math.min(currentAgentCount, cap, storeAfter.maxAgents);
-    if (desired !== currentAgentCount) {
-      storeAfter.setAgentCount(desired);
-      engine.resetWorld(spec, desired, true); // reusing map for adjustment
-    }
+    store.setCapacity(cap);
+    store.setAgentCount(Math.min(store.agentCount, cap));
     resetCamera();
-  }, [resetNonce, resetCamera, engineRef]); // REMOVED agentCount from deps
+
+  }, [resetNonce, engineRef]); // REMOVED other deps to strict reset trigger
+
+  // Effect: Restart (Same Map, Reset Agents)
+  useEffect(() => {
+    if (!engine || !_baseSpec) return;
+    if (restartNonce === 0) return;
+
+    const store = useSimStore.getState();
+    engine.resetWorld(_baseSpec, store.agentCount, true); // reuseMap = true
+
+    // Capacity shouldn't change if map is same
+    const cap = engine.getRoomCapacity();
+    store.setCapacity(cap);
+    store.setAgentCount(Math.min(store.agentCount, cap));
+    // No camera reset needed usually, but maybe good practice
+  }, [restartNonce]);
+
 
   useEffect(() => {
     if (!engine) return;

@@ -30,6 +30,8 @@ interface SimState {
   setCapacity: (n: number) => void;
   resetNonce: number;     // bump to request a full reset at 06:00
   bumpReset: () => void;
+  restartNonce: number;   // bump to restart agents/time but KEEP map
+  bumpRestart: () => void;
   // renderer / selection
   selectedAgentId?: string | null;
   setSelectedAgentId: (id: string | null) => void;
@@ -62,11 +64,11 @@ export const useSimStore = create<SimState>((set) => ({
   setLiveScore: (s) => set({ liveScore: s }),
 
   mapParams: {
-    corridorWidth: 2,
+    corridorWidth: 10,
     crossHeight: 0,
     bandHeight: 12,
     bandCount: 0,
-    dormRowGap: 3,
+    dormRowGap: 4,
     // POI dimensions (matching sweep-lab defaults)
     barWidth: 14,
     barHeight: 6,
@@ -90,6 +92,8 @@ export const useSimStore = create<SimState>((set) => ({
   }),
   resetNonce: 0,
   bumpReset: () => set((s) => ({ resetNonce: s.resetNonce + 1 })),
+  restartNonce: 0,
+  bumpRestart: () => set((s) => ({ restartNonce: s.restartNonce + 1 })),
 
   selectedAgentId: null,
   setSelectedAgentId: (id) => set({ selectedAgentId: id }),
