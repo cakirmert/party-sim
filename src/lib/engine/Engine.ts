@@ -302,7 +302,6 @@ export class Engine {
     this.density = undefined;
     this.densityTimer = 0;
     this.densityRecomputesThisSecond = 0;
-    this.perfTimer = 0;
     this.ticksThisSecond = 0;
     this.lastTicksPerSecond = 0;
     this.lastDensityRecomputes = 0;
@@ -387,7 +386,6 @@ export class Engine {
         this.density = undefined;
         this.densityTimer = 0;
         this.densityRecomputesThisSecond = 0;
-        this.perfTimer = 0;
         this.ticksThisSecond = 0;
         this.lastTicksPerSecond = 0;
         this.lastDensityRecomputes = 0;
