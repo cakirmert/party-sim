@@ -177,7 +177,7 @@ export default function UIControls({ engineRef }: Props) {
 
         {/* TPS Display */}
         <div className="flex flex-col items-start px-2" title="Ticks Per Second: Measures simulation speed performance">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">TPS</span>
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ticks / Sec</span>
           <span className="text-xl font-mono font-bold text-slate-700 leading-none">{tps}</span>
         </div>
 

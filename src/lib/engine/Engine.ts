@@ -27,6 +27,7 @@ const MOVE_DIRS: Vec2[] = [
 /** Off-map tracking entry (for UI "Out List"). */
 export interface OutRecord {
   id: string;
+  name?: string;
   reason: "Study" | "Work" | "Shop";
   untilMinute: number;
   exitPos: Vec2;
@@ -60,7 +61,13 @@ export class Engine {
   density?: Uint16Array;
   private densityTimer = 0;
   private densityRecomputesThisSecond = 0;
-  private perfTimer = 0;
+  // private perfTimer = 0; // Keeping this for density timer sync? No, density uses its own. Remove if unused.
+  // Actually densityTimer uses dtSec which IS simulation time. Correct.
+  // We need new wall clock timers.
+  private wallPerfTimer = 0;
+  private wallTicksAccumulator = 0;
+  private lastWallSec = 0;
+
   private ticksThisSecond = 0;
   private lastTicksPerSecond = 0;
   private lastDensityRecomputes = 0;
@@ -309,6 +316,7 @@ export class Engine {
       const a = new Agent(this.roomSpawns[i]);
       a.roomId = `R${i}`;
       a.resetRandomType(); // set here agent
+      a.name = a.generateName(this.rng.next.bind(this.rng)); // Assign persistent name
       this.setAgentState(a, "Breakfast", BREAKFAST_MINUTES);
       this.resetAgentTarget(a);
       a.recentTiles = [{ ...a.pos }];
@@ -404,7 +412,23 @@ export class Engine {
 
   /** Drive the sim from a raf loop; call with nowSec. Returns how many fixed steps ran. */
   advance(nowSec: number): number {
+    if (this.lastWallSec === 0) this.lastWallSec = nowSec;
+    const wallDt = nowSec - this.lastWallSec;
+    this.lastWallSec = nowSec;
+
+    this.wallPerfTimer += wallDt;
+
     const steps = this.clock.advance(nowSec);
+    this.wallTicksAccumulator += steps;
+
+    if (this.wallPerfTimer >= 1.0) {
+      this.lastTicksPerSecond = this.wallTicksAccumulator;
+      this.wallTicksAccumulator = 0;
+      this.wallPerfTimer -= 1.0;
+      // Safety reset if huge lag spike
+      if (this.wallPerfTimer > 1.0) this.wallPerfTimer = 0;
+    }
+
     for (let i = 0; i < steps; i++) {
       this.fixedStep(1 / this.cfg.baseTickRate);
       this.tickCount++;
@@ -498,10 +522,16 @@ export class Engine {
     const roomCoeff = currentProps.room * (this.rng.int(5, 8));
     const outsideCoeff = currentProps.outside * (this.rng.int(5, 8));
 
-    const center = this.isMax(gymCoeff, [barCoeff, outsideCoeff, roomCoeff]) ? "GYM"
-      : this.isMax(barCoeff, [gymCoeff, outsideCoeff, roomCoeff]) ? "BAR"
-        : this.isMax(outsideCoeff, [gymCoeff, barCoeff, roomCoeff]) ? "OUTSIDE"
-          : "ROOM";
+    const min = this.tod.minute % 1440;
+    // Sleep Override: 00:00 - 06:00 -> Force ROOM
+    const isSleepTime = min < 360;
+
+    // Determine base desire
+    const center = isSleepTime ? "ROOM" :
+      this.isMax(gymCoeff, [barCoeff, outsideCoeff, roomCoeff]) ? "GYM"
+        : this.isMax(barCoeff, [gymCoeff, outsideCoeff, roomCoeff]) ? "BAR"
+          : this.isMax(outsideCoeff, [gymCoeff, barCoeff, roomCoeff]) ? "OUTSIDE"
+            : "ROOM";
 
     const agentRoom = parseInt(agent.roomId?.split("R")[1] || "0", 10);
     const isRoom = center === "ROOM";
@@ -968,8 +998,8 @@ export class Engine {
     // Advance in-game time
     this.tod.advance(this.minutesPerTick);
     this.densityTimer += dtSec;
-    this.perfTimer += dtSec;
-    this.ticksThisSecond++;
+    // this.perfTimer += dtSec; // Removed, using wall clock for TPS
+    // this.ticksThisSecond++;  // Removed
 
     if (this.tod.minute == 0) {
       this.tod.dayOfWeek = (this.tod.dayOfWeek + 1) % 7;
@@ -1122,15 +1152,9 @@ export class Engine {
 
     // Skip perf stats in headless mode unless explicitly requested
     if (!this.cfg.headless || this.cfg.computePerfStats) {
-      while (this.perfTimer >= 1) {
-        this.perfTimer -= 1;
-        this.lastTicksPerSecond = this.ticksThisSecond;
-        this.ticksThisSecond = 0;
-        this.lastDensityRecomputes = this.densityRecomputesThisSecond;
-        this.densityRecomputesThisSecond = 0;
-      }
+      // Legacy perf timer block removed. TPS is now wall-clock based in advance()
     } else {
-      this.perfTimer = 0; // Reset timer to prevent buildup
+      // cleared
     }
   }
 
@@ -1143,7 +1167,7 @@ export class Engine {
     const dur = this.rng.int(60, 360); // minutes
     const untilMinute = (this.tod.minute + dur) % 1440;
     // Track
-    this.outList.push({ id: a.id, reason, untilMinute, exitPos, roomId: a.roomId });
+    this.outList.push({ id: a.id, name: a.name, reason, untilMinute, exitPos, roomId: a.roomId });
     if (!this.cfg.headless || this.cfg.emitEvents) {
       this.events.emit({ type: "AGENT_DESPAWNED", id: a.id });
     }

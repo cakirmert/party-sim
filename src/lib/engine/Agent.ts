@@ -45,6 +45,17 @@ export class Agent extends Entity {
     const i = Math.floor(rng() * AGENT_TYPES.length);
     this.agentType = AGENT_TYPES[i];
   }
+
+  generateName(rng: () => number = Math.random) {
+    const names = [
+      "Alice", "Bob", "Charlie", "David", "Eve", "Frank", "Grace", "Heidi",
+      "Ivan", "Judy", "Mallory", "Niaj", "Olivia", "Peggy", "Rupert", "Sybil",
+      "Trent", "Victor", "Walter", "Zara", "Arthur", "Beatrix", "Colin", "Daisy"
+    ];
+    return names[Math.floor(rng() * names.length)];
+  }
+
+  name: string = "Agent";
 }
 
 export const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
