@@ -1,6 +1,6 @@
 import { GridMap } from "./GridMap";
 import { ScoringMetrics } from "../scoring";
-import { Agent, AGENT_PROPS, DAY_NAMES } from "./Agent";
+import { Agent, AGENT_PROPS, AGENT_TYPES, AgentType, DAY_NAMES, TimeSlot } from "./Agent";
 import type { EngineConfig, Vec2, BaseSpec, Tile, TileTag, AgentState, WanderTarget, PathMetric, BoundingBox } from "./Types";
 import { RNG } from "./RNG";
 import type { Command } from "./Commands";
@@ -35,7 +35,7 @@ export interface OutRecord {
   exitTime?: number;
 }
 
-export type timeOfDay = "morning" | "afternoon" | "night";
+
 
 export class Engine {
   readonly cfg: EngineConfig;
@@ -162,6 +162,9 @@ export class Engine {
   private poiCapacity: Record<"BAR" | "GYM", number> = { BAR: 30, GYM: 15 };
   private poiOccupancy: Record<"BAR" | "GYM", number> = { BAR: 0, GYM: 0 };
   private poiCenters = new Map<TileTag, Vec2>();
+  private poiDoors = new Map<TileTag, Vec2>();
+  private roomDoors = new Map<string, Vec2>();
+  private doorToRoom = new Map<string, string>();
   density?: Uint16Array;
   private densityTimer = 0;
   private densityRecomputesThisSecond = 0;
@@ -368,7 +371,16 @@ export class Engine {
       // Rebuild map from base spec
       this.map = GridMap.buildFromSpec(this.cfg.grid, baseSpec);
       this.setCorridorBoundingBoxes(baseSpec);
-      this.roomSpawns = this.generateDorm(count); // This fills map with rooms
+      const { spawns, doors } = this.generateDorm(count); // This fills map with rooms
+      this.roomSpawns = spawns;
+
+      this.roomDoors.clear();
+      this.doorToRoom.clear();
+      doors.forEach((d, i) => {
+        const rId = `R${i}`;
+        this.roomDoors.set(rId, d);
+        this.doorToRoom.set(this.keyOf(d), rId);
+      });
 
       this.barBoundingBox = {
         x0: baseSpec.barRect.x,
@@ -610,11 +622,12 @@ export class Engine {
     return center;
   }
 
-  private getTimeOfDay(): timeOfDay {
+  private getTimeOfDay(): TimeSlot {
     const hour = Math.floor(this.tod.minute / 60) % 24;
     if (hour >= 6 && hour < 12) return "morning";
-    if (hour >= 12 && hour < 18) return "afternoon";
-    return "night";
+    if (hour >= 12 && hour < 17) return "afternoon";
+    if (hour >= 17 && hour < 23) return "evening";
+    return "lateNight";
   }
 
   private isMax(currentValue: number, otherValues: number[]) {
@@ -624,61 +637,131 @@ export class Engine {
     return true;
   }
 
+  private getDoorForPoi(tag: TileTag): Vec2 | null {
+    if (this.poiDoors.has(tag)) return this.poiDoors.get(tag)!;
+    const rawCenter = this.getPoiCenter(tag);
+    if (!rawCenter) return null;
+    const center = { x: Math.round(rawCenter.x), y: Math.round(rawCenter.y) };
+
+    // Search for nearest DOOR from center
+    const door = this.findNearestTaggedTile(center, "DOOR", 32);
+    if (door) {
+      this.poiDoors.set(tag, door);
+      return door;
+    }
+    // Fallback: Use center if no door found
+    return center;
+  }
+
   private pickWanderTarget(agent: Agent): WanderTarget | null {
     if (this.emergencyMode) {
+      const isOutside = this.map.get(agent.pos.x, agent.pos.y).tag === "OUTSIDE";
+      // If already outside, maybe just stay there or scatter?
+      // But we strictly want them to leave map.
       const exit = this.findNearestTaggedTile(agent.pos, "EXIT", 200);
       if (exit) return { point: exit, room: "EXIT" };
+
       const exitCenter = this.getPoiCenter("EXIT");
       if (exitCenter) return { point: { x: Math.round(exitCenter.x), y: Math.round(exitCenter.y) }, room: "EXIT" };
-      return null; // No exit known?
+
+      // If no EXIT tag found, maybe OUTSIDE is safe enough?
+      // Use center of OUTSIDE
+      const outside = this.getPoiCenter("OUTSIDE");
+      if (outside) return { point: { x: Math.round(outside.x), y: Math.round(outside.y) }, room: "EXIT" };
+      return null;
     }
 
     const agentProps = AGENT_PROPS[agent.agentType];
     const timeOfDay = this.getTimeOfDay();
     const dayOfWeek = DAY_NAMES[this.tod.dayOfWeek];
     const currentProps = agentProps[dayOfWeek][timeOfDay];
-    const gymCoeff = currentProps.gym * (this.rng.int(5, 8));
-    const barCoeff = currentProps.bar * (this.rng.int(5, 8));
-    const roomCoeff = currentProps.room * (this.rng.int(5, 8));
-    const outsideCoeff = currentProps.outside * (this.rng.int(5, 8));
+
+    // Coefficients
+    let gymCoeff = currentProps.gym * (this.rng.int(5, 8));
+    let barCoeff = currentProps.bar * (this.rng.int(5, 8));
+    let roomCoeff = currentProps.room * (this.rng.int(5, 8));
+    let outsideCoeff = currentProps.outside * (this.rng.int(5, 8));
 
     const min = this.tod.minute % 1440;
-    // Sleep Override: 00:00 - 06:00 -> Force ROOM
-    const isSleepTime = min < 360;
 
-    // Determine base desire
-    const center = isSleepTime ? "ROOM" :
-      this.isMax(gymCoeff, [barCoeff, outsideCoeff, roomCoeff]) ? "GYM"
-        : this.isMax(barCoeff, [gymCoeff, outsideCoeff, roomCoeff]) ? "BAR"
-          : this.isMax(outsideCoeff, [gymCoeff, barCoeff, roomCoeff]) ? "OUTSIDE"
-            : "ROOM";
-
-    const agentRoom = parseInt(agent.roomId?.split("R")[1] || "0", 10);
-    const isRoom = center === "ROOM";
-    const poiCenter = isRoom ? this.roomSpawns[agentRoom] : this.getPoiCenter(center);
-
-    if (isRoom && poiCenter) {
-      return { point: { x: poiCenter.x, y: poiCenter.y }, room: center };
+    // Party Mode (22:00 - 04:00)
+    // Boost Bar affinity for everyone, but mostly Party Animals (handled by base weights)
+    // But we add a global vibe boost
+    const isPartyTime = min >= 1320 || min < 240;
+    if (isPartyTime) {
+      barCoeff *= 1.5;
+      if (agent.agentType === "PartyAnimal") barCoeff *= 2;
     }
 
-    if (poiCenter) {
-      const cx = isRoom ? poiCenter.x : Math.round(poiCenter.x);
-      const cy = isRoom ? poiCenter.y : Math.round(poiCenter.y);
-      for (let i = 0; i < 6; i++) {
-        const tx = cx + this.rng.int(-4, 4);
-        const ty = cy + this.rng.int(-4, 4);
-        if (!this.map.inBounds(tx, ty)) continue;
-        const tile = this.map.get(tx, ty);
-        if (tile.walkable) return { point: { x: tx, y: ty }, room: center };
+    // Sleep Override: 00:00 - 06:00 -> Force ROOM mostly
+    const isSleepTime = min < 360;
+    if (isSleepTime) {
+      // PartyAnimals might stay up till 4am (240)
+      if (agent.agentType === "PartyAnimal" && min < 240) {
+        // keep partying
+      } else {
+        roomCoeff *= 10;
       }
     }
 
-    for (let i = 0; i < 8; i++) {
-      const gx = this.rng.int(0, this.map.width - 1);
-      const gy = this.rng.int(0, this.map.height - 1);
-      if (this.map.get(gx, gy).walkable) return { point: { x: gx, y: gy }, room: center };
+    // Determine base desire
+    const center = this.isMax(gymCoeff, [barCoeff, outsideCoeff, roomCoeff]) ? "GYM"
+      : this.isMax(barCoeff, [gymCoeff, outsideCoeff, roomCoeff]) ? "BAR"
+        : this.isMax(outsideCoeff, [gymCoeff, barCoeff, roomCoeff]) ? "OUTSIDE"
+          : "ROOM";
+
+    // "Door First" Navigation Logic
+    const currentTile = this.map.get(agent.pos.x, agent.pos.y);
+    const currentTag = currentTile.tag;
+
+    // Helper: Are we 'effectively' in the target area?
+    const isAtTarget = (target: string) => {
+      if (currentTag === target) return true;
+      // If at a door, consider us 'entering' so we can proceed to interior
+      if (currentTag === "DOOR" || currentTag === "BED") return true;
+      // If Room, check ID? Agent.roomId
+      return false;
+    };
+
+    const resolveTarget = (aim: string): WanderTarget | null => {
+      // If we are NOT in the aim area, target the DOOR.
+      if (currentTag !== aim && currentTag !== "DOOR" && currentTag !== "BED") {
+        if (aim === "ROOM") {
+          const door = this.roomDoors.get(agent.roomId || "");
+          if (door) return { point: door, room: "ROOM" };
+        } else if (aim === "GYM" || aim === "BAR") {
+          const door = this.getDoorForPoi(aim);
+          if (door) return { point: door, room: aim };
+        }
+      }
+
+      // If we ARE via door/inside, pick random spot inside
+      if (aim === "ROOM") {
+        // Go to own room center or bed
+        const agentRoomIdx = parseInt(agent.roomId?.split("R")[1] || "0", 10);
+        const roomCenter = this.roomSpawns[agentRoomIdx];
+        if (roomCenter) return { point: { x: roomCenter.x, y: roomCenter.y }, room: "ROOM" };
+      }
+
+      const poiCenter = this.getPoiCenter(aim as TileTag);
+      if (poiCenter) {
+        const range = aim === "OUTSIDE" ? 20 : 6;
+        for (let i = 0; i < 8; i++) {
+          const tx = Math.round(poiCenter.x) + this.rng.int(-range, range);
+          const ty = Math.round(poiCenter.y) + this.rng.int(-range, range);
+          if (this.map.inBounds(tx, ty)) {
+            const t = this.map.get(tx, ty);
+            if (t.walkable && (t.tag === aim || aim === "OUTSIDE")) {
+              return { point: { x: tx, y: ty }, room: aim };
+            }
+          }
+        }
+        return { point: { x: Math.round(poiCenter.x), y: Math.round(poiCenter.y) }, room: aim };
+      }
+      return null;
     }
-    return null;
+
+    return resolveTarget(center);
   }
 
   private tryAssignMove(agent: Agent, wanderTarget: WanderTarget | null, state: AgentState = "Wander"): boolean {
@@ -721,15 +804,38 @@ export class Engine {
   }
 
   private rememberTile(agent: Agent) {
-    agent.recentTiles.push({ x: agent.pos.x, y: agent.pos.y });
+    const current = { x: agent.pos.x, y: agent.pos.y };
+    agent.recentTiles.push(current);
     if (agent.recentTiles.length > RECENT_TILE_HISTORY) {
       agent.recentTiles.shift();
+    }
+
+    // Check for oscillation (repeating small loop like A-B-A-B)
+    const len = agent.recentTiles.length;
+    if (len >= 4) {
+      const p1 = agent.recentTiles[len - 1];
+      const p2 = agent.recentTiles[len - 2];
+      const p3 = agent.recentTiles[len - 3];
+      const p4 = agent.recentTiles[len - 4];
+
+      // ABA pattern
+      if (p1.x === p3.x && p1.y === p3.y && p2.x !== p1.x && p2.y !== p1.y) {
+        agent.stuckTicks += 2;
+      }
+      // ABAB pattern check implicitly covered or
+      // A-B-C-A loop
+      if (p1.x === p4.x && p1.y === p4.y) {
+        agent.stuckTicks += 2;
+      }
     }
   }
 
   private findNearestTaggedTile(start: Vec2, tag: TileTag, maxRadius = 0): Vec2 | null {
-    if (!this.map.inBounds(start.x, start.y)) return null;
-    const queue: Vec2[] = [{ x: start.x, y: start.y }];
+    // Safety rounding to ensure we use integer coordinates
+    const sx = Math.round(start.x);
+    const sy = Math.round(start.y);
+    if (!this.map.inBounds(sx, sy)) return null;
+    const queue: Vec2[] = [{ x: sx, y: sy }];
     const distMap = new Map<string, number>();
     const startKey = this.keyOf(start);
     distMap.set(startKey, 0);
@@ -920,6 +1026,16 @@ export class Engine {
         if (!this.map.inBounds(nx, ny)) continue;
         const tile = this.map.get(nx, ny);
         if (!tile.walkable) continue;
+
+        // Flow Field Door Check
+        if (tile.tag === "DOOR" && !this.emergencyMode) {
+          const key = this.keyOf({ x: nx, y: ny });
+          const associatedRoom = this.doorToRoom.get(key);
+          if (associatedRoom && associatedRoom !== agent.roomId) {
+            continue; // Treat as wall
+          }
+        }
+
         const idx = this.map.index(nx, ny);
         const existing = field[idx];
         const stepCost = (dir.x !== 0 && dir.y !== 0 ? 14 : 10) + Math.max(0, tile.moveCost - 1) * 10;
@@ -938,72 +1054,110 @@ export class Engine {
   private chooseLocalStep(agent: Agent, occupied: Set<string>): Vec2 | null {
     const dest = agent.dest;
     if (!dest) return null;
-    const dx = dest.x - agent.pos.x;
-    const dy = dest.y - agent.pos.y;
-    const currentDist = Math.hypot(dx, dy);
-    if (currentDist === 0) return null;
-    const targetX = dx / currentDist;
-    const targetY = dy / currentDist;
+
+    // 1. Determine Interest (Goal) Vector via Flow Field
     const field = agent.flowField;
     const currentField = field ? field[this.map.index(agent.pos.x, agent.pos.y)] : 0xffff;
 
-    const candidates: Array<{ dir: Vec2; dot: number; improves: boolean; nextDist: number }> = [];
+    let bestFlow = currentField;
+    let goalDir = { x: 0, y: 0 };
+
+    // If no flow field, fallback to direct line
+    if (!field || currentField === 0xffff) {
+      const dx = dest.x - agent.pos.x;
+      const dy = dest.y - agent.pos.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0) goalDir = { x: dx / dist, y: dy / dist };
+    } else {
+      // Gradient descent for interest
+      for (const dir of MOVE_DIRS) {
+        const nx = agent.pos.x + dir.x;
+        const ny = agent.pos.y + dir.y;
+        if (!this.map.inBounds(nx, ny)) continue;
+        const idx = this.map.index(nx, ny);
+        const val = field[idx];
+        if (val < bestFlow) {
+          bestFlow = val;
+          // Add to goal dir (accumulate all downhill paths)
+          goalDir.x += dir.x;
+          goalDir.y += dir.y;
+        }
+      }
+    }
+
+    // Normalize goal
+    const goalLen = Math.hypot(goalDir.x, goalDir.y);
+    if (goalLen > 0.001) {
+      goalDir.x /= goalLen;
+      goalDir.y /= goalLen;
+    }
+
+    // 2. Determine Danger Vector (Repulsion) from Occupied tiles
+    let dangerDir = { x: 0, y: 0 };
+    // Check immediate 8 neighbors for agents
     for (const dir of MOVE_DIRS) {
       const nx = agent.pos.x + dir.x;
       const ny = agent.pos.y + dir.y;
       if (!this.map.inBounds(nx, ny)) continue;
+      const key = this.keyOf({ x: nx, y: ny });
+      if (occupied.has(key)) {
+        // Repulse 
+        dangerDir.x -= dir.x;
+        dangerDir.y -= dir.y;
+      }
+    }
 
+    // 3. Combine with weights
+    // High danger weight prevents rubbing shoulders
+    const steerX = goalDir.x + dangerDir.x * 2.0;
+    const steerY = goalDir.y + dangerDir.y * 2.0;
+
+    // 4. Select best valid discrete move
+    let bestCandidate: Vec2 | null = null;
+    let bestScore = -Infinity;
+
+    for (const dir of MOVE_DIRS) {
+      const nx = agent.pos.x + dir.x;
+      const ny = agent.pos.y + dir.y;
+      if (!this.map.inBounds(nx, ny)) continue;
       const tile = this.map.get(nx, ny);
       if (!tile.walkable) continue;
 
-      // Prevent corner cutting/clipping
+      // Room Privacy Lock
+      if (tile.tag === "DOOR" && !this.emergencyMode) {
+        const key = this.keyOf({ x: nx, y: ny });
+        const associatedRoom = this.doorToRoom.get(key);
+        if (associatedRoom && associatedRoom !== agent.roomId) continue;
+      }
+
+      // Collision check (Hard constraint)
+      const key = this.keyOf({ x: nx, y: ny });
+      if (occupied.has(key)) continue;
+
+      // Diagonal Safety
       if (dir.x !== 0 && dir.y !== 0) {
-        // Diagonal move: ensure at least one cardinal neighbor is walkable
         const c1 = this.map.get(agent.pos.x + dir.x, agent.pos.y);
         const c2 = this.map.get(agent.pos.x, agent.pos.y + dir.y);
         if (!c1.walkable && !c2.walkable) continue;
       }
 
-      const key = this.keyOf({ x: nx, y: ny });
-      if (occupied.has(key)) continue;
-      const nextDist = Math.hypot(dest.x - nx, dest.y - ny);
-      const dot = dir.x * targetX + dir.y * targetY;
+      // Score: Dot product with steer vector
+      const dot = dir.x * steerX + dir.y * steerY;
+
+      // Prefer unvisited
       const visited = agent.recentTiles.some(t => t.x === nx && t.y === ny);
-      let fieldBonus = 0;
-      let fieldImproves = false;
-      if (field && currentField !== 0xffff) {
-        const neighborField = field[this.map.index(nx, ny)];
-        if (neighborField !== 0xffff) {
-          fieldImproves = neighborField < currentField;
-          fieldBonus = Math.max(0, currentField - neighborField) / 100;
-        }
+      const score = dot - (visited ? 2.5 : 0); // High penalty for backtracking
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = dir;
       }
-      const score = dot + fieldBonus - (visited ? RECENT_TILE_PENALTY : 0);
-      const improves = (fieldImproves) || nextDist < currentDist - 1e-6;
-      candidates.push({ dir, dot: score, improves, nextDist });
     }
 
-    if (!candidates.length) return null;
-    const improving = candidates.filter(c => c.improves);
-
-    // Fallback: If stuck and no improving move, try best available valid move (wall following/sliding)
-    let pool = improving;
-    if (pool.length === 0 && agent.stuckTicks > 2) {
-      pool = candidates;
-    }
-
-    if (pool.length === 0) return null;
-
-    pool.sort((a, b) => {
-      // If dot product is similar, prefer visited? No, prefer unvisited.
-      // But standard sort is fine: prefer best dot (alignment)
-      if (Math.abs(b.dot - a.dot) < 0.01) return a.nextDist - b.nextDist;
-      return b.dot - a.dot;
-    });
-    return pool[0].dir;
+    return bestCandidate;
   }
 
-  private findLocalSearchStep(agent: Agent, occupied?: Set<string>): Vec2 | null {
+  private findLocalSearchStep(agent: Agent, occupied?: Set<string>, boostMultiplier = 1): Vec2 | null {
     if (!agent.dest) return null;
     const start: Vec2 = { x: agent.pos.x, y: agent.pos.y };
     const startKey = this.keyOf(start);
@@ -1017,7 +1171,7 @@ export class Engine {
     let bestKey = startKey;
     let bestDist = Math.hypot(agent.dest.x - start.x, agent.dest.y - start.y);
 
-    while (queue.length && nodes < LOCAL_SEARCH_MAX_NODES) {
+    while (queue.length && nodes < LOCAL_SEARCH_MAX_NODES * boostMultiplier) {
       const current = queue.shift()!;
       nodes++;
       const currentKey = this.keyOf(current);
@@ -1105,10 +1259,23 @@ export class Engine {
       // No more waypoints; fall through to final arrival handling.
     }
     const tile = this.map.get(agent.pos.x, agent.pos.y);
+
+    // Evacuation: Despawn immediately if on EXIT or OUTSIDE during emergency
+    if (this.emergencyMode && (tile.tag === "EXIT" || tile.tag === "OUTSIDE")) {
+      this.despawnToOffMap(agent, { x: agent.pos.x, y: agent.pos.y });
+      return false;
+    }
+    // Normal exit behavior (if any non-emergency exit usage exists)
     if (tile.tag === "EXIT") {
       this.despawnToOffMap(agent, { x: agent.pos.x, y: agent.pos.y });
       return false;
     }
+    // Evacuation: Despawn immediately if on EXIT or OUTSIDE during emergency
+    if (this.emergencyMode && (tile.tag === "EXIT" || tile.tag === "OUTSIDE")) {
+      this.despawnToOffMap(agent, { x: agent.pos.x, y: agent.pos.y });
+      return false;
+    }
+
     if (tile.tag === "BAR") {
       this.handlePoiArrival(agent, tile.tag);
       const minStay = Math.max(1, 60 - 50);
@@ -1269,13 +1436,19 @@ export class Engine {
         if (!step) {
           blockedThisTick = true;
           a.stuckTicks = Math.min(a.stuckTicks + 1, 1000);
+
+          // "See more" if stuck: Boost search if we've been stuck a bit
           if (a.stuckTicks >= STUCK_SEARCH_TICKS) {
-            step = this.findLocalSearchStep(a, occupiedTiles);
+            // If really stuck, increase search radius
+            const boostRadius = a.stuckTicks > 5 ? 2 : 1;
+            step = this.findLocalSearchStep(a, occupiedTiles, boostRadius);
             if (step) blockedThisTick = false;
           }
           if (!step) break;
         } else {
           blockedThisTick = false;
+          // Slowly decay stuck ticks if moving freely, or reset?
+          if (a.stuckTicks > 0) a.stuckTicks--;
         }
         const stepDist = (step.x !== 0 && step.y !== 0) ? Math.SQRT2 : 1;
         if (remaining + 1e-6 < stepDist) break;
@@ -1365,11 +1538,12 @@ export class Engine {
    * All generated tiles are tagged LOCKED plus semantic tags (ROOM, CORRIDOR, DOOR).
    * Returns centers for spawning, one per room.
    */
-  private generateDorm(_numAgents: number): Vec2[] {
+  private generateDorm(_numAgents: number): { spawns: Vec2[], doors: Vec2[] } {
     // keep requested count for future limits; generation itself produces full capacity
     const requestedAgents = Math.max(1, _numAgents);
     void requestedAgents;
     const spawns: Vec2[] = [];
+    const doors: Vec2[] = [];
 
     const roomInteriorW = 3;
     const roomInteriorH = 3;
@@ -1468,6 +1642,7 @@ export class Engine {
 
         // Add to spawn list (center of room)
         spawns.push(spawn);
+        doors.push({ x: doorX, y: doorY });
       };
 
       const stampCorridorRow = (y: number, rect: { x: number; w: number }) => {
@@ -1507,7 +1682,7 @@ export class Engine {
         }
       }
 
-      return spawns;
+      return { spawns, doors };
     }
 
     const margin = 4;
@@ -1559,6 +1734,7 @@ export class Engine {
       }
 
       spawns.push(spawn);
+      doors.push({ x: doorX, y: doorY });
     };
 
     const placeRow = (top: number, doorDir: "up" | "down") => {
@@ -1600,6 +1776,6 @@ export class Engine {
       this.map.set(x, corridorMid, { ...tile, walkable: true, moveCost: 1, tag: "CORRIDOR" });
     }
 
-    return spawns;
+    return { spawns, doors };
   }
 }

@@ -6,6 +6,7 @@ import CanvasRenderer from "@/components/CanvasRenderer";
 import UIControls from "@/components/UIControls";
 import AgentInspector from "@/components/AgentInspector";
 import OutList from "@/components/OutList";
+import { ScoreInfo } from '@/components/ScoreInfo';
 import { useSimStore } from "@/lib/state/useSimStore";
 import type { Engine } from "@/lib/engine/Engine";
 import { DAY_NAMES } from "@/lib/engine/Agent";
@@ -80,7 +81,6 @@ export default function Page() {
           </div>
         </header>
 
-        {/* Time Display */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 shadow-sm">
             <span className="text-slate-400 text-sm">Day:</span>

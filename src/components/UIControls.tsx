@@ -8,6 +8,7 @@ import { AGENT_TYPES } from "@/lib/engine/Agent";
 import { getAgentColor } from "./utils";
 import type { MetricsMap, SimSpeed } from "@/lib/engine/Types";
 import { calculateLiveScore } from "@/lib/scoring";
+import { ScoreInfo } from "@/components/ScoreInfo";
 
 const SPEED_OPTIONS: SimSpeed[] = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
 
@@ -277,7 +278,10 @@ export default function UIControls({ engineRef }: Props) {
           ) : (
             <div className="flex flex-wrap items-stretch gap-6">
               <div className="flex flex-col justify-center pr-6 border-r border-slate-200">
-                <span className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-1">Total Score</span>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Total Score</span>
+                  <ScoreInfo score={liveScore} />
+                </div>
                 <span className={`text-4xl font-black ${liveScore.total >= 80 ? "text-emerald-500" : liveScore.total >= 50 ? "text-amber-500" : "text-rose-500"}`}>
                   {Number(liveScore.total).toFixed(0)}
                 </span>

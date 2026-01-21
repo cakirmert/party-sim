@@ -68,18 +68,26 @@ export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
 
     // Stuck: 0% is good (100). 
     // 10% stuck is bad (0). (Current was *500 => 20%->0).
-    // Let's make it *1000 => 10% -> 0.
     const scoreStuck = Math.max(0, 100 - (m.stuckRate * 1000));
 
     // Integrated Congestion: Density + Evacuation + Stuck
-    // Merging Evacuation as a key part of "Congestion" (Exit Scenario).
-    const scoreCongestionTotal = (scoreCongDensity * 0.40) + (scoreEvac * 0.40) + (scoreStuck * 0.20);
+    let scoreCongestionTotal = 0;
+    const isEmergency = m.emergencyEfficiency !== undefined;
+
+    if (isEmergency) {
+        // Emergency: Evac is critical
+        scoreCongestionTotal = (scoreCongDensity * 0.40) + (scoreEvac * 0.40) + (scoreStuck * 0.20);
+    } else {
+        // Normal: Evac is irrelevant/zero. Focus on Density & Stuck.
+        scoreCongestionTotal = (scoreCongDensity * 0.70) + (scoreStuck * 0.30);
+    }
 
     // Path: Lower is better. 
     // Optimal path 20. 
-    // Let's penalize less aggressively. 
-    // 20 -> 100. 200 -> 0.
-    const scorePath = Math.max(0, 100 - Math.max(0, m.avgPathLength - 20) * (100 / 180));
+    // If no paths yet (0), assume 100.
+    const scorePath = m.avgPathLength > 0
+        ? Math.max(0, 100 - Math.max(0, m.avgPathLength - 20) * (100 / 180))
+        : 100;
 
     const finalScore = (
         scoreCap * w.capacity +
@@ -97,8 +105,8 @@ export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
         emergency: m.emergencyEfficiency !== undefined ? Number(m.emergencyEfficiency.toFixed(1)) : undefined,
         details: {
             density: Number(scoreCongDensity.toFixed(1)),
-            evac: Number(scoreEvac.toFixed(1)),
-            wait: Number(scoreStuck.toFixed(1)),
+            evac: isEmergency ? Number(scoreEvac.toFixed(1)) : 0,
+            wait: Number(scoreStuck.toFixed(1)), // using 'wait' field for stuck score in breakdown
         }
     };
 }
