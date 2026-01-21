@@ -2,12 +2,12 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Engine } from "@/lib/engine/Engine";
-import type { Tile, TileTag } from "@/lib/engine/Types";
+import type { BaseSpec, Tile } from "@/lib/engine/Types";
 
 type BaseSpecFile = {
     width: number;
     height: number;
-    spec: any; // Using any for BaseSpec to avoid importing complex types if not needed, or import BaseSpec
+    spec: BaseSpec;
 };
 // import { getAgentColor } from "./CanvasRenderer"; // reusing utils if exported, or inline them
 
@@ -189,7 +189,7 @@ export default function MapPreview({ mapUrl, heatmapData, mapOpacity = 1, heatma
         if (heat && heat.data && activeHeatOpacity > 0) {
             ctx.globalAlpha = activeHeatOpacity;
             // Blur the heatmap for a smoother "glow" look
-            // @ts-ignore - filter is valid in modern browsers but TS might complain
+
             ctx.filter = "blur(2px)";
 
             // 1. Smooth the data (Convolution) to widen hotspots
@@ -208,7 +208,6 @@ export default function MapPreview({ mapUrl, heatmapData, mapOpacity = 1, heatma
                     }
 
                     let sum = val * 1.0; // Keep original distinctness
-                    let count = 1.0;
 
                     // Add neighbors with weight
                     const neighbors = [
@@ -258,7 +257,7 @@ export default function MapPreview({ mapUrl, heatmapData, mapOpacity = 1, heatma
                 }
             }
             // Reset filter and alpha
-            // @ts-ignore
+
             ctx.filter = "none";
             ctx.globalAlpha = 1.0;
         }

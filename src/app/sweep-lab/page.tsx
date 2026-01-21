@@ -7,7 +7,6 @@ import type { BaseSpec, MapJSON, Tile, RectSpec } from "@/lib/engine/Types";
 import {
   buildRangesFromForm,
   calculateVariationCount,
-  DEFAULT_PARAMETER_RANGES,
 } from "@/lib/mapgen/runtime";
 import MapResultCard from "./MapResultCard";
 
@@ -38,9 +37,7 @@ type ProgressResponse = {
   eta?: number;
 };
 
-// Fixed constants (not user-configurable)
-const FIXED_OUTSIDE_HEIGHT = 4;
-const FIXED_HEATMAP_SCALE = 4;
+
 
 // Get default worker count (will be overridden by API on server)
 const DEFAULT_WORKERS = typeof navigator !== "undefined" ? Math.max(1, (navigator.hardwareConcurrency || 4) - 1) : 4;
@@ -76,7 +73,7 @@ export default function SweepLabPage() {
   const [form, setForm] = useState(DEFAULT_FORM);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [progressInfo, setProgressInfo] = useState<ProgressResponse | null>(null);
+  const [_progressInfo, setProgressInfo] = useState<ProgressResponse | null>(null);
   const [runLog, setRunLog] = useState<string>("");
   const [ranking, setRanking] = useState<RankingResponse | null>(null);
   const [loadingRank, setLoadingRank] = useState(false);
@@ -84,8 +81,7 @@ export default function SweepLabPage() {
   const [heatmapOpacity, setHeatmapOpacity] = useState(0.7);
   const [mapOpacity, setMapOpacity] = useState(0.8);
   const [showMap, setShowMap] = useState(true);
-  const [mapPreviews, setMapPreviews] = useState<Record<string, string>>({});
-  const [showInfo, setShowInfo] = useState(false);
+
 
   // Calculate variation count from current form parameters
   const variationInfo = useMemo(() => {
@@ -136,16 +132,7 @@ export default function SweepLabPage() {
     fetchRanking().catch(() => { });
   }, []);
 
-  const formatTime = (ms: number) => {
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    if (minutes < 60) return `${minutes}m ${secs}s`;
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hours}h ${mins}m`;
-  };
+
 
   const handleRun = async () => {
     setRunning(true);
@@ -506,7 +493,7 @@ export default function SweepLabPage() {
                   <div className="h-64 flex flex-col items-center justify-center text-slate-500 border-2 border-dashed border-white/5 rounded-xl">
                     <svg className="w-10 h-10 mb-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0121 18.382V7.618a1 1 0 01-1.447-.894L15 7m0 13V7m0 0L9 4" /></svg>
                     <p>No results generated yet.</p>
-                    <p className="text-xs mt-1">Configure the simulation on the left and click "Run Sweep"</p>
+                    <p className="text-xs mt-1">Configure the simulation on the left and click &quot;Run Sweep&quot;</p>
                   </div>
                 )}
               </div>
@@ -520,20 +507,7 @@ export default function SweepLabPage() {
   );
 }
 
-function Metric({ label, value }: { label: string; value?: number }) {
-  if (value === undefined || value === null || Number.isNaN(value)) return (
-    <div className="flex flex-col">
-      <span className="text-slate-500">{label}</span>
-      <span className="text-slate-500">—</span>
-    </div>
-  );
-  return (
-    <div className="flex flex-col">
-      <span className="text-slate-500">{label}</span>
-      <span className="font-semibold text-slate-100">{value.toFixed(3)}</span>
-    </div>
-  );
-}
+
 
 function Label({ text, hint, children }: { text: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -558,71 +532,4 @@ function LegendSwatch({ color, label }: { color: string; label: string }) {
   );
 }
 
-async function renderMapPreview(url: string): Promise<string | undefined> {
-  const res = await fetch(url, { cache: "force-cache" });
-  if (!res.ok) throw new Error(`Failed to load map ${url}`);
-  const json = await res.json() as MapJSON;
-  if (!json) return undefined;
 
-  let map = json;
-  if (!map.tiles || !map.tiles.length) {
-    if (!map.spec) return undefined;
-    const gm = GridMap.buildFromSpec({ width: json.width, height: json.height }, map.spec as BaseSpec);
-    map = gm.toJSON();
-  }
-
-  const { width, height, tiles } = map;
-  // Use scale 4-6 for better detail, matching heatmap scale
-  const scale = Math.max(4, Math.min(600 / width, 600 / height, 6));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.floor(width * scale));
-  canvas.height = Math.max(1, Math.floor(height * scale));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return undefined;
-
-  const colorOf = (t: Tile): string => {
-    if (!t.walkable) return "#0b1021";
-    switch (t.tag) {
-      case "BAR": return "#fde68a";
-      case "GYM": return "#a7f3d0";
-      case "CORRIDOR": return "#dbeafe";
-      case "ROOM": return "#e0e7ff";
-      case "DOOR": return "#fef08a";
-      case "OUTSIDE": return "#bbf7d0";
-      case "EXIT": return "#fb7185";
-      case "ROAD": return "#cbd5e1";
-      default: return "#f8fafc";
-    }
-  };
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const tile = tiles[y * width + x];
-      ctx.fillStyle = colorOf(tile);
-      ctx.fillRect(x * scale, y * scale, scale, scale);
-    }
-  }
-  if (map.spec) {
-    const labels: Array<{ text: string; rect: RectSpec }> = [
-      { text: "BAR", rect: map.spec.barRect as RectSpec },
-      { text: "GYM", rect: map.spec.gymRect as RectSpec },
-      { text: "EXIT", rect: map.spec.exitRect as RectSpec },
-      { text: "OUTSIDE", rect: map.spec.outsideRect as RectSpec },
-    ];
-    ctx.fillStyle = "#0f172a";
-    ctx.font = `${Math.max(10, 12 * scale)}px sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    labels.forEach(l => {
-      if (!l.rect) return;
-      const cx = (l.rect.x + l.rect.w / 2) * scale;
-      const cy = (l.rect.y + l.rect.h / 2) * scale;
-      ctx.strokeStyle = "white";
-      ctx.lineWidth = Math.max(1, scale / 2);
-      ctx.strokeText(l.text, cx, cy);
-      ctx.fillText(l.text, cx, cy);
-    });
-  }
-
-  return canvas.toDataURL("image/png");
-}

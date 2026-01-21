@@ -28,7 +28,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
   const miniCanvasRef = useRef<HTMLCanvasElement>(null);
   const renderPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const [engine, setEngine] = useState<Engine | null>(null);
-  const [baseSpec, setBaseSpec] = useState<BaseSpec | null>(null);
+  const [_baseSpec, setBaseSpec] = useState<BaseSpec | null>(null);
   const [smoothRender, setSmoothRender] = useState(false);
   const editable = variant === "editor";
 
@@ -59,7 +59,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
   const miniVisibleRef = useRef(false);
   const [miniVisible, setMiniVisible] = useState(false);
   const [mapUrl, setMapUrl] = useState<string | null>(null);
-  const resetSeedRef = useRef(0);
+
   const prevMapParamsRef = useRef<string>("");
 
   const resetCamera = useCallback(() => {
@@ -156,7 +156,7 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
         console.error("Failed to load map", e);
       }
     })();
-  }, [mapUrl, resetCamera]);
+  }, [mapUrl, resetCamera, engineRef]);
 
   useEffect(() => { engine?.setSpeed(speed); }, [engine, speed]);
   useEffect(() => { engine?.setPaused(paused); }, [engine, paused]);
