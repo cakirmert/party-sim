@@ -98,14 +98,14 @@ export default function AgentInspector({ engineRef }: Props) {
 
   if (!snapshot) {
     return (
-      <div className="text-sm text-slate-500 italic p-2">
+      <div className="text-sm text-slate-500 italic flex items-center justify-center h-64 min-w-[300px] bg-slate-50 rounded-lg border border-slate-100">
         Click an agent to inspect details.
       </div>
     );
   }
 
   return (
-    <div className="text-sm text-slate-700 animate-in fade-in slide-in-from-bottom-2">
+    <div className="text-sm text-slate-700 animate-in fade-in slide-in-from-bottom-2 h-64 min-w-[300px] flex flex-col">
       <div className="flex items-baseline justify-between border-b border-slate-100 pb-2 mb-2">
         <div className="flex flex-col">
           <span className="font-bold text-lg text-slate-800">{snapshot.name}</span>

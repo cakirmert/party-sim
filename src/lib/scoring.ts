@@ -10,6 +10,7 @@ export type ScoringMetrics = {
     gymOccupancyRatio: number;
     evacuationRate: number;
     avgExitTime: number;
+    emergencyEfficiency?: number;
 };
 
 export type ScoreBreakdown = {
@@ -18,6 +19,7 @@ export type ScoreBreakdown = {
     utilization: number;
     congestion: number;
     path: number;
+    emergency?: number;
     details: {
         density: number;
         evac: number;
@@ -92,6 +94,7 @@ export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
         utilization: Number(scoreUtil.toFixed(1)),
         congestion: Number(scoreCongestionTotal.toFixed(1)),
         path: Number(scorePath.toFixed(1)),
+        emergency: m.emergencyEfficiency !== undefined ? Number(m.emergencyEfficiency.toFixed(1)) : undefined,
         details: {
             density: Number(scoreCongDensity.toFixed(1)),
             evac: Number(scoreEvac.toFixed(1)),

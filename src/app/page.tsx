@@ -62,8 +62,10 @@ export default function Page() {
               </h1>
             </div>
             <p className="text-slate-500 text-sm max-w-2xl">
-              Test your venue layouts in real-time. Agents move autonomously through dorms, bar, and gym.
-              Adjust parameters and click <span className="text-emerald-600 font-medium">Reset @06:00</span> to regenerate.
+              Test layouts in real-time. Agents move autonomously through dorms, bar, and gym.
+            </p>
+            <p className="text-slate-500 text-sm max-w-2xl">
+              Adjust parameters and click <span className="font-bold text-slate-600">Reset</span> to regenerate.
             </p>
           </div>
           <div className="flex gap-3">

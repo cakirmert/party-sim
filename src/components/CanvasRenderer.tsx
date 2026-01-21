@@ -154,14 +154,21 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
           pixelsPerTile: 24,
         };
         let eng = engineRef.current;
-        if (!eng || eng.cfg.grid.width !== grid.width || eng.cfg.grid.height !== grid.height) {
-          eng = new Engine(cfg, json.spec);
+        const needsRecreation = !eng ||
+          eng.cfg.grid.width !== grid.width ||
+          eng.cfg.grid.height !== grid.height ||
+          typeof eng.setSpeed !== "function";
+
+        if (needsRecreation) {
+          eng = new Engine(cfg);
           engineRef.current = eng;
           setEngine(eng);
         }
         setBaseSpec(json.spec);
         const store = useSimStore.getState();
         const initialAgentCount = store.agentCount;
+        if (!eng) return; // Should not happen after creation
+
         eng.resetWorld(json.spec, initialAgentCount);
         const cap = eng.getRoomCapacity();
         store.setCapacity(cap);
@@ -568,15 +575,21 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
           // For now, let's just show Current Position Visibility.
         }
 
-        // 2. Current Position with Radius
+        // 2. Current Position with Radius (Polygon)
         const cx = (agent.pos.x + 0.5) * ppt;
         const cy = (agent.pos.y + 0.5) * ppt;
-        const r = 8 * ppt; // Vision radius
-        ctx.arc(cx, cy, r, 0, Math.PI * 2, true); // true = counter-clockwise (hole)
-
-        // 3. Known POIs (Bar, Gym, Exit)?
-        // Agent knows general direction, maybe we highlight them?
-        // Let's just highlight POI centers if we know them.
+        const poly = engine.getVisionPolygon(agent);
+        if (poly && poly.length > 2) {
+          ctx.moveTo(poly[0].x * ppt, poly[0].y * ppt);
+          for (let i = 1; i < poly.length; i++) {
+            ctx.lineTo(poly[i].x * ppt, poly[i].y * ppt);
+          }
+          ctx.closePath(); // Determine the hole
+        } else {
+          // Fallback
+          const r = agent.visionRadius * ppt;
+          ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
+        }
 
         ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
         ctx.fill("evenodd"); // This fills the parts between outer rect and the holes
@@ -673,14 +686,11 @@ export default function CanvasRenderer({ engineRef, variant = "sim", mapUrl: pro
       useSimStore.getState().setTps(Math.round(nextStats.ticksPerSecond));
 
       // Live Scoring update (throttled check ~30 ticks)
+      // Live Scoring update (throttled check ~30 ticks)
       if (engine.getTick() % 30 === 0) {
-        if (mins > 420 || mins < 300) { // Valid data range logic
-          const m = engine.getLiveMetrics();
-          const score = calculateLiveScore(m);
-          useSimStore.getState().setLiveScore(score);
-        } else {
-          useSimStore.getState().setLiveScore(null);
-        }
+        const m = engine.getLiveMetrics();
+        const score = calculateLiveScore(m);
+        useSimStore.getState().setLiveScore(score);
       }
     }
 

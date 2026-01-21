@@ -29,6 +29,7 @@ export class Agent extends Entity {
   flowFieldVersion = -1;
   flowFieldDest: Vec2 | null = null;
   navQueue: Vec2[] = [];
+  visionRadius = 15;
 
   constructor(pos: Vec2) {
     super();

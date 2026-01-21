@@ -28,7 +28,7 @@ const MOVE_DIRS: Vec2[] = [
 export interface OutRecord {
   id: string;
   name?: string;
-  reason: "Study" | "Work" | "Shop";
+  reason: "Study" | "Work" | "Shop" | "Evac";
   untilMinute: number;
   exitPos: Vec2;
   roomId?: string;
@@ -39,16 +39,120 @@ export type timeOfDay = "morning" | "afternoon" | "night";
 
 export class Engine {
   readonly cfg: EngineConfig;
-  map: GridMap;
+  map!: GridMap;
   readonly events = new EventBus();
   readonly clock: Clock;
   private rng: RNG;
   readonly tod: TimeOfDay;
-
   private agents: Map<string, Agent> = new Map();
   private outList: OutRecord[] = [];
   private tickCount = 0;
   private weeksElapsed = 0;
+
+  constructor(cfg: EngineConfig) {
+    this.cfg = cfg;
+    this.clock = new Clock(cfg.baseTickRate);
+    this.rng = new RNG(cfg.seed);
+    this.tod = new TimeOfDay();
+  }
+
+  getAgents(): Agent[] {
+    return Array.from(this.agents.values());
+  }
+
+  getRoomCapacity(): number {
+    return this.roomSpawns.length;
+  }
+
+  getOutList(): OutRecord[] {
+    return this.outList;
+  }
+
+  setSpeed(mult: number) {
+    this.clock.setSpeed(mult);
+  }
+
+  setPaused(p: boolean) {
+    this.clock.setPaused(p);
+  }
+
+  getTick(): number {
+    return this.tickCount;
+  }
+
+  getPerfStats() {
+    return {
+      ticksPerSecond: this.lastTicksPerSecond,
+      densityRecomputesPerSecond: this.lastDensityRecomputes,
+    };
+  }
+
+  private setCorridorBoundingBoxes(spec: BaseSpec) {
+    if (spec.corridorRects) {
+      this.corridorBoundingBoxes = spec.corridorRects.map(c => ({
+        x0: c.x, y0: c.y, x1: c.x + c.w, y1: c.y + c.h, tiles: c.w * c.h
+      }));
+    }
+  }
+
+  stepOnce() {
+    this.fixedStep(1 / this.cfg.baseTickRate);
+    this.tickCount++;
+    if (!this.cfg.headless || this.cfg.emitEvents) {
+      this.events.emit({ type: "TICK", tick: this.tickCount });
+    }
+  }
+
+  private keyOf(pos: Vec2): string {
+    return `${pos.x}:${pos.y}`;
+  }
+
+  private hasLineOfSight(start: Vec2, end: Vec2, radius: number): boolean {
+    if (Math.abs(start.x - end.x) > radius || Math.abs(start.y - end.y) > radius) return false;
+
+    // Check distance squared
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    if (dx * dx + dy * dy > radius * radius) return false;
+
+    // Bresenham's Line Algorithm
+    let x0 = start.x;
+    let y0 = start.y;
+    const x1 = end.x;
+    const y1 = end.y;
+
+    const sx = (x0 < x1) ? 1 : -1;
+    const sy = (y0 < y1) ? 1 : -1;
+    const dxAbs = Math.abs(x1 - x0);
+    const dyAbs = Math.abs(y1 - y0);
+    let err = dxAbs - dyAbs;
+
+    while (true) {
+      if (!this.map.inBounds(x0, y0)) return false;
+      const tile = this.map.get(x0, y0);
+      // "WALL" blocks vision. "LOCKED" blocks vision if it's a wall (usually represented by WALL tag).
+      // For simple blocking, check walkable? No, windows exist?
+      // User said: "not be able to see beyond walls".
+      // Assuming WALL tag is the blocker.
+      // Also locked non-walkable tiles might be walls.
+      if (tile.tag === "WALL" || (!tile.walkable && tile.tag !== "DOOR")) return false;
+
+      if (x0 === x1 && y0 === y1) break;
+
+      const e2 = 2 * err;
+      if (e2 > -dyAbs) {
+        err -= dyAbs;
+        x0 += sx;
+      }
+      if (e2 < dxAbs) {
+        err += dxAbs;
+        y0 += sy;
+      }
+    }
+    return true;
+  }
+  public emergencyMode = false;
+  public emergencyStartTick = -1;
 
   /** Minutes advanced per fixed logic tick at 1× speed. Adjust for your pacing. */
   private minutesPerTick = 0.5;
@@ -86,76 +190,77 @@ export class Engine {
     this.maxBarOccupancy = [0, 0, 0, 0, 0, 0, 0];
     this.maxGymOccupancy = [0, 0, 0, 0, 0, 0, 0];
     this.corridorDensityValues = [];
+    this.emergencyMode = false;
+    this.emergencyStartTick = -1;
   }
 
-  private setCorridorBoundingBoxes(baseSpec?: BaseSpec) {
-    this.corridorBoundingBoxes = baseSpec?.corridorRects?.map((rect) => {
-      return {
-        x0: rect.x,
-        y0: rect.y,
-        x1: rect.x + rect.w,
-        y1: rect.y + rect.h,
-        tiles: rect.w * rect.h,
-      };
-    });
-  }
-
-  constructor(cfg: EngineConfig, baseSpec?: BaseSpec) {
-    this.cfg = cfg;
-    this.rng = new RNG(cfg.seed);
-    this.clock = new Clock(cfg.baseTickRate);
-    this.tod = new TimeOfDay(360); // 06:00
-
-    this.setCorridorBoundingBoxes(baseSpec);
-
-    // Start with a simple BUILDABLE floor if no spec yet; caller can reset later.
-    this.map = baseSpec
-      ? GridMap.buildFromSpec(cfg.grid, baseSpec)
-      : new GridMap(cfg.grid, { walkable: true, moveCost: 1, tag: "BUILDABLE" });
-  }
-
-  private keyOf(pos: Vec2): string {
-    return `${pos.x}:${pos.y}`;
-  }
-
-  // ——— Public getters ———
-  getTick() { return this.tickCount; }
-  getAgents(): Agent[] { return [...this.agents.values()]; }
-  /** Iterate agents without allocating an array (for batch runs). */
-  forEachAgent(cb: (a: Agent) => void): void {
-    for (const a of this.agents.values()) cb(a);
-  }
-  /** Get agent count without allocating (for batch runs). */
-  getAgentCount(): number { return this.agents.size; }
-  /** Reseed the RNG (for reusing Engine across runs). */
-  setSeed(seed: string): void {
-    this.rng = new RNG(seed);
-  }
-  getOutList(): OutRecord[] { return [...this.outList]; }
-  getPerfStats() {
-    return {
-      ticksPerSecond: this.lastTicksPerSecond,
-      densityRecomputesPerSecond: this.lastDensityRecomputes,
-    };
-  }
-  getRoomCapacity() { return this.roomSpawns.length; }
-  setSpeed(mult: number) { this.clock.setSpeed(mult); }
-  setPaused(p: boolean) { this.clock.setPaused(p); }
-  stepOnce() {
-    const steps = this.clock.stepOnce();
-    for (let i = 0; i < steps; i++) {
-      this.fixedStep(1 / this.cfg.baseTickRate);
-      this.tickCount++;
-      if (!this.cfg.headless || this.cfg.emitEvents) {
-        this.events.emit({ type: "TICK", tick: this.tickCount });
-      }
+  triggerEmergency() {
+    if (this.emergencyMode) return;
+    this.emergencyMode = true;
+    this.emergencyStartTick = this.tickCount;
+    // Force everyone to exit
+    for (const a of this.agents.values()) {
+      this.setAgentState(a, "GoingToExit");
+      this.resetAgentTarget(a);
+      a.moveProgress = 0;
     }
-    return steps;
+    if (!this.cfg.headless || this.cfg.emitEvents) {
+      this.events.emit({ type: "EMERGENCY_START", tick: this.tickCount });
+    }
   }
+
+  // ... (rest of file)
 
   // ——— Core API ———
 
   get paused() { return this.clock.isPaused; }
+
+  /**
+   * Calculate vision polygon for an agent (for rendering).
+   * Casts rays in a circle to find wall obstrutions.
+   */
+  getVisionPolygon(agent: Agent): Vec2[] {
+    const start = { x: agent.pos.x + 0.5, y: agent.pos.y + 0.5 }; // Center of tile
+    const radius = agent.visionRadius;
+    const points: Vec2[] = [];
+    const rayCount = 64; // Resolution
+
+    for (let i = 0; i < rayCount; i++) {
+      const angle = (i / rayCount) * Math.PI * 2;
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+
+      let cx = start.x;
+      let cy = start.y;
+      let dist = 0;
+
+      while (dist < radius) {
+        cx += dx * 0.5; // Step size 0.5 for speed
+        cy += dy * 0.5;
+        dist += 0.5;
+
+        // Check Map Bounds
+        if (cx < 0 || cy < 0 || cx >= this.map.width || cy >= this.map.height) {
+          points.push({ x: cx, y: cy });
+          break;
+        }
+
+        // Check Wall
+        const tx = Math.floor(cx);
+        const ty = Math.floor(cy);
+        const tile = this.map.get(tx, ty);
+        if (tile.tag === "WALL" || (!tile.walkable && tile.tag !== "DOOR")) {
+          // Hit wall
+          points.push({ x: cx, y: cy });
+          break;
+        }
+      }
+      if (dist >= radius) {
+        points.push({ x: start.x + dx * radius, y: start.y + dy * radius });
+      }
+    }
+    return points;
+  }
 
   /**
    * Return current metrics snapshot for live scoring.
@@ -163,23 +268,11 @@ export class Engine {
    */
   getLiveMetrics(): ScoringMetrics {
     const agents = this.getAgents();
-    if (agents.length === 0) {
-      return {
-        roomCapacity: this.getRoomCapacity(),
-        actualAgents: 0,
-        corridorP95: 0,
-        avgPathLength: 0,
-        stuckRate: 0,
-        barOccupancyRatio: 0,
-        gymOccupancyRatio: 0,
-        evacuationRate: 0,
-        avgExitTime: 0,
-      };
-    }
-
-    // Agent count
-    const actualAgents = agents.length;
+    // Return base metrics even if no agents yet, to avoid "Waiting..."
     const roomCapacity = this.getRoomCapacity();
+
+    // Agent count (Total population = on-map + off-map)
+    const actualAgents = agents.length + this.outList.length;
 
     // Corridor Density (P95 of collected values so far)
     let corridorP95 = 0;
@@ -198,37 +291,56 @@ export class Engine {
       avgPathLength = this.pathsMetrics.reduce((s, p) => s + p.length, 0) / this.pathsMetrics.length;
     }
 
-    // Stuck Rate (Current agents with stuck/waiting status / total)
-    // We approximate 'stuck' as agents waiting > 20 ticks (10s at 2 ticks/s? No, ticks are 0.5m?)
-    // Using stuckTicks from Agent.
+    // Stuck Rate
     const stuckCount = agents.filter(a => a.stuckTicks > 10).length;
-    const stuckRate = stuckCount / actualAgents;
+    const stuckRate = actualAgents > 0 ? stuckCount / actualAgents : 0;
 
-    // Occupancy (Max so far? Or Current?)
-    // Live score should probably reflect *current* performance or *cumulative* performance?
-    // "Live score" implies "how is it going".
-    // Let's use the max recorded so far to match the 'peak' nature of occupancy scoring.
+    // Occupancy
     const maxBar = Math.max(...this.maxBarOccupancy, this.poiOccupancy.BAR);
     const maxGym = Math.max(...this.maxGymOccupancy, this.poiOccupancy.GYM);
 
-    // We need map tiles for ratio
-    // barBoundingBox might be undefined if not set? (It is set in resetWorld)
     const barTiles = this.barBoundingBox?.tiles || 1;
     const gymTiles = this.gymBoundingBox?.tiles || 1;
 
     const barOccupancyRatio = maxBar / barTiles;
     const gymOccupancyRatio = maxGym / gymTiles;
 
-    // Evacuation (only relevant if evac mode active?)
-    // We can return 0 if not finished.
-    // Or if in evac mode, return current progress.
+    // Evacuation / Emergency Score
     const evacs = this.outList.length;
-    const evacuationRate = this.outList.length / (this.outList.length + agents.length || 1);
+    let evacuationRate = 0;
+    if (this.emergencyMode) {
+      // In emergency, rate is % of people who made it out since emergency start?
+      // Or just total out / total population?
+      // Let's use total population (current agents + outList)
+      const totalPop = actualAgents + evacs;
+      evacuationRate = totalPop > 0 ? evacs / totalPop : 0;
+    }
 
     // Avg Exit Time
     let avgExitTime = 0;
     if (this.outList.length > 0) {
       avgExitTime = this.outList.reduce((s, a) => s + (a.exitTime || 0), 0) / this.outList.length;
+    }
+
+    // Emergency Efficiency Score (New)
+    // Starts at 100, drops as time passes.
+    // If all evacuated (actualAgents == 0), stays constant.
+    let emergencyEfficiency = 0;
+    if (this.emergencyMode) {
+      const elapsed = this.tickCount - this.emergencyStartTick; // ticks
+      // Simple decay: 100 - (seconds passed?). 1 tick = 0.5 mins? No baseTickRate defines ticks/sec.
+      // Let's say we want it to timeout in 3 mins (180s).
+      // If 20 ticks/sec, 180s = 3600 ticks.
+      // Score = 100 * (1 - elapsed / 3600).
+      // But simulation speed varies. We should measure sim time or ticks.
+      // Let's use ticks.
+      const maxTicks = 120 * 20; // ~2 mins at 20tps
+      // If everyone out, freeze score? Use lastExitTime?
+      // Simpler: Just 100 - (elapsed / 20).
+      emergencyEfficiency = Math.max(0, 100 - (elapsed / 20));
+
+      // Boost by % evacuated?
+      emergencyEfficiency = (emergencyEfficiency * 0.5) + (evacuationRate * 100 * 0.5);
     }
 
     return {
@@ -240,8 +352,9 @@ export class Engine {
       barOccupancyRatio,
       gymOccupancyRatio,
       evacuationRate,
-      avgExitTime
-    };
+      avgExitTime,
+      emergencyEfficiency, // Add to interface? Types.ts update needed.
+    } as any; // Cast for now until interface updated
   }
 
   /**
@@ -340,6 +453,7 @@ export class Engine {
       case "SPAWN_AGENT": {
         const a = new Agent(cmd.pos);
         this.setAgentState(a, "Idle");
+        a.name = a.generateName(this.rng.next.bind(this.rng));
         a.lastMapVersion = this.map.getVersion();
         this.agents.set(a.id, a);
         if (!this.cfg.headless || this.cfg.emitEvents) {
@@ -511,6 +625,14 @@ export class Engine {
   }
 
   private pickWanderTarget(agent: Agent): WanderTarget | null {
+    if (this.emergencyMode) {
+      const exit = this.findNearestTaggedTile(agent.pos, "EXIT", 200);
+      if (exit) return { point: exit, room: "EXIT" };
+      const exitCenter = this.getPoiCenter("EXIT");
+      if (exitCenter) return { point: { x: Math.round(exitCenter.x), y: Math.round(exitCenter.y) }, room: "EXIT" };
+      return null; // No exit known?
+    }
+
     const agentProps = AGENT_PROPS[agent.agentType];
     const timeOfDay = this.getTimeOfDay();
     const dayOfWeek = DAY_NAMES[this.tod.dayOfWeek];
@@ -698,14 +820,15 @@ export class Engine {
     const waypoints: Vec2[] = [];
     if (this.map.inBounds(agent.pos.x, agent.pos.y)) {
       const startTile = this.map.get(agent.pos.x, agent.pos.y);
-      if (startTile.tag === "ROOM") {
+      if (startTile.tag && ["ROOM", "GYM", "BAR"].includes(startTile.tag)) {
         const door = this.findNearestTaggedTile(agent.pos, "DOOR", 64);
         if (door) waypoints.push(door);
       }
     }
     if (this.map.inBounds(finalTarget.x, finalTarget.y)) {
       const targetTile = this.map.get(finalTarget.x, finalTarget.y);
-      if (targetTile.tag === "ROOM") {
+      // For room targets, ensure we aim for a door if we're not already inside
+      if (targetTile.tag && ["ROOM", "GYM", "BAR"].includes(targetTile.tag)) {
         const door = this.findNearestTaggedTile(finalTarget, "DOOR", 64);
         if (door) waypoints.push(door);
       }
@@ -725,9 +848,36 @@ export class Engine {
   }
 
   private advanceWaypoint(agent: Agent): boolean {
+    if (!agent.navQueue.length) return false;
+
+    // Vision Optimization: Look ahead in the queue
+    // Find the furthest waypoint that is visible
+    let bestIdx = 0;
+    // Iterate from end to start to find furthest visible
+    // Limit lookahead to avoid checks per frame?
+    // Optimization: Check indices [length-1 ... 1]
+    for (let i = agent.navQueue.length - 1; i > 0; i--) {
+      if (this.hasLineOfSight(agent.pos, agent.navQueue[i], agent.visionRadius)) {
+        bestIdx = i;
+        break;
+      }
+    }
+
+    // If we found a visible shortcut, skip intermediate waypoints
+    if (bestIdx > 0) {
+      agent.navQueue.splice(0, bestIdx); // Remove everything UP TO bestIdx (exclusive... wait. if 0 is current, bestIdx is next. splicing 0..1 removes 0. leaving bestIdx as [0])
+      // If bestIdx is 5, we want to skip 0,1,2,3,4. NavQueue[0] becomes old NavQueue[5].
+      // splice(0, bestIdx) removes 0..bestIdx-1.
+    }
+
+    // Now take the next one
     while (agent.navQueue.length) {
       const next = agent.navQueue.shift()!;
       if (next.x === agent.pos.x && next.y === agent.pos.y) continue;
+
+      // Additional check: Is 'next' visible? If global path says go there, but there's a wall now (dynamic?), replan.
+      // But assuming static walls for now.
+
       agent.dest = { ...next };
       agent.lastMapVersion = this.map.getVersion();
       this.rebuildFlowField(agent);
@@ -802,8 +952,18 @@ export class Engine {
       const nx = agent.pos.x + dir.x;
       const ny = agent.pos.y + dir.y;
       if (!this.map.inBounds(nx, ny)) continue;
+
       const tile = this.map.get(nx, ny);
       if (!tile.walkable) continue;
+
+      // Prevent corner cutting/clipping
+      if (dir.x !== 0 && dir.y !== 0) {
+        // Diagonal move: ensure at least one cardinal neighbor is walkable
+        const c1 = this.map.get(agent.pos.x + dir.x, agent.pos.y);
+        const c2 = this.map.get(agent.pos.x, agent.pos.y + dir.y);
+        if (!c1.walkable && !c2.walkable) continue;
+      }
+
       const key = this.keyOf({ x: nx, y: ny });
       if (occupied.has(key)) continue;
       const nextDist = Math.hypot(dest.x - nx, dest.y - ny);
@@ -825,9 +985,19 @@ export class Engine {
 
     if (!candidates.length) return null;
     const improving = candidates.filter(c => c.improves);
-    const pool = improving.length ? improving : candidates;
+
+    // Fallback: If stuck and no improving move, try best available valid move (wall following/sliding)
+    let pool = improving;
+    if (pool.length === 0 && agent.stuckTicks > 2) {
+      pool = candidates;
+    }
+
+    if (pool.length === 0) return null;
+
     pool.sort((a, b) => {
-      if (b.dot === a.dot) return a.nextDist - b.nextDist;
+      // If dot product is similar, prefer visited? No, prefer unvisited.
+      // But standard sort is fine: prefer best dot (alignment)
+      if (Math.abs(b.dot - a.dot) < 0.01) return a.nextDist - b.nextDist;
       return b.dot - a.dot;
     });
     return pool[0].dir;
@@ -1042,6 +1212,13 @@ export class Engine {
         continue;
       }
 
+      // Stuck Recovery
+      if (a.stuckTicks > 10) {
+        this.resetAgentTarget(a);
+        a.stuckTicks = 0;
+        // Don't continue, let it try to pick a new target below
+      }
+
       if (a.pendingWander && !a.dest) {
         if (this.forceWander(a)) {
           a.pendingWander = false;
@@ -1049,8 +1226,9 @@ export class Engine {
       }
 
       const breakfastOver = ((this.tod.minute - 360 + 1440) % 1440) >= BREAKFAST_MINUTES;
+      const isEmergency = this.emergencyMode;
 
-      if (!a.dest && breakfastOver && this.rng.next() < 0.08) {
+      if (!a.dest && (isEmergency || (breakfastOver && this.rng.next() < 0.08))) {
         if (this.forceWander(a)) {
           a.pendingWander = false;
         }
@@ -1161,8 +1339,17 @@ export class Engine {
     // Remove agent
     this.agents.delete(a.id);
     // Pick reason + duration
-    const reason = this.rng.pick<OutRecord["reason"]>(["Study", "Work", "Shop"]);
-    const dur = this.rng.int(60, 360); // minutes
+    let reason: OutRecord["reason"];
+    let dur: number;
+
+    if (this.emergencyMode) {
+      reason = "Evac";
+      dur = 1440; // Gone for the day
+    } else {
+      reason = this.rng.pick<OutRecord["reason"]>(["Study", "Work", "Shop"]);
+      dur = this.rng.int(60, 360); // minutes
+    }
+
     const untilMinute = (this.tod.minute + dur) % 1440;
     // Track
     this.outList.push({ id: a.id, name: a.name, reason, untilMinute, exitPos, roomId: a.roomId });
