@@ -49,6 +49,7 @@ const DEFAULT_FORM = {
   agents: "150",
   seed: "ui-seed",
   rowGap: "2,3,4",
+  corridor: "2,3",
   barX: "6,10,14,18",
   barY: "6,10,14",
   gymX: "6,10,14,18",
@@ -91,6 +92,7 @@ export default function SweepLabPage() {
     // We must pass the fully dynamic set of parameters to get the true count
     const ranges = buildRangesFromForm({
       rowGap: clean(form.rowGap),
+      corridor: clean(form.corridor),
       barX: clean(form.barX),
       barY: clean(form.barY),
       gymX: clean(form.gymX),
@@ -299,104 +301,124 @@ export default function SweepLabPage() {
                       className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
                     />
                   </Label>
-                  <Label text="Agent Count" hint="Target population">
-                    <input type="text" value={form.agents}
-                      onChange={(e) => setForm({ ...form, agents: e.target.value })}
-                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                  <Label text="Agent Capacity" hint="Auto-filled to max potential">
+                    <input type="text" value="Max (Auto)" disabled
+                      className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
                     />
                   </Label>
                 </div>
 
-                {/* Seed Input Hidden (Fixed to random/default internally or just not shown) */}
-                {/* <Label text="Base Seed" hint="Random seed">
+                <div className="pt-4 border-t border-white/5 space-y-4">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Map Parameters</h3>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Label text="Corridor Width" hint="Tiles (e.g. 2,3)">
+                      <input type="text" value={form.corridor}
+                        onChange={(e) => setForm({ ...form, corridor: e.target.value })}
+                        placeholder="2,3"
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all font-mono"
+                      />
+                    </Label>
+                    <Label text="Dorm Row Gap" hint="Vertical spacing">
+                      <input type="text" value={form.rowGap}
+                        onChange={(e) => setForm({ ...form, rowGap: e.target.value })}
+                        placeholder="2,3,4"
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all font-mono"
+                      />
+                    </Label>
+                  </div>
+
+                  {/* Seed Input Hidden (Fixed to random/default internally or just not shown) */}
+                  {/* <Label text="Base Seed" hint="Random seed">
                     <input type="text" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })}
                       className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono text-slate-300 focus:border-emerald-500/50 outline-none transition-all"
                     />
                   </Label> */}
 
-                {/* Advanced Map Params Collapsible */}
-                <details className="group bg-black/20 rounded-lg border border-white/5 open:bg-black/40 transition-colors">
-                  <summary className="cursor-pointer p-3 text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-slate-300 flex items-center justify-between select-none">
-                    Map Generation Params
-                    <svg className="w-4 h-4 transition-transform group-open:rotate-180 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </summary>
-                  <div className="p-3 pt-0 grid gap-3 text-xs">
-                    <Label text="Bar Dimensions (CSV)" hint="Widths, Heights (e.g. 14,16)">
-                      <div className="grid grid-cols-2 gap-2">
-                        <input placeholder="Widths" value={form.barX} onChange={e => setForm({ ...form, barX: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
-                        <input placeholder="Heights" value={form.barY} onChange={e => setForm({ ...form, barY: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
-                      </div>
-                    </Label>
-                    <Label text="Gym Dimensions (CSV)" hint="Widths, Heights">
-                      <div className="grid grid-cols-2 gap-2">
-                        <input placeholder="Widths" value={form.gymX} onChange={e => setForm({ ...form, gymX: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
-                        <input placeholder="Heights" value={form.gymY} onChange={e => setForm({ ...form, gymY: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
-                      </div>
-                    </Label>
-                    <Label text="Layout" hint="Row gaps, Exit widths">
-                      <div className="grid grid-cols-2 gap-2">
-                        <input placeholder="Gap (2,3)" value={form.rowGap} onChange={e => setForm({ ...form, rowGap: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
-                        <input placeholder="Exit (10,12)" value={form.exitWidth} onChange={e => setForm({ ...form, exitWidth: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
-                      </div>
-                    </Label>
+                  {/* Advanced Map Params Collapsible */}
+                  <details className="group bg-black/20 rounded-lg border border-white/5 open:bg-black/40 transition-colors">
+                    <summary className="cursor-pointer p-3 text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-slate-300 flex items-center justify-between select-none">
+                      Map Generation Params
+                      <svg className="w-4 h-4 transition-transform group-open:rotate-180 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </summary>
+                    <div className="p-3 pt-0 grid gap-3 text-xs">
+                      <Label text="Bar Dimensions (CSV)" hint="Widths, Heights (e.g. 14,16)">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input placeholder="Widths" value={form.barX} onChange={e => setForm({ ...form, barX: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                          <input placeholder="Heights" value={form.barY} onChange={e => setForm({ ...form, barY: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                        </div>
+                      </Label>
+                      <Label text="Gym Dimensions (CSV)" hint="Widths, Heights">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input placeholder="Widths" value={form.gymX} onChange={e => setForm({ ...form, gymX: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                          <input placeholder="Heights" value={form.gymY} onChange={e => setForm({ ...form, gymY: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                        </div>
+                      </Label>
+                      <Label text="Layout" hint="Row gaps, Exit widths">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input placeholder="Gap (2,3)" value={form.rowGap} onChange={e => setForm({ ...form, rowGap: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                          <input placeholder="Exit (10,12)" value={form.exitWidth} onChange={e => setForm({ ...form, exitWidth: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                        </div>
+                      </Label>
 
-                    <Label text="Concurrency" hint="Parallel Workers">
-                      <input type="number" min={1} max={32} value={form.workers}
-                        onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
-                        className="w-full bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-xs focus:border-emerald-500/50 outline-none"
-                      />
-                    </Label>
+                      <Label text="Concurrency" hint="Parallel Workers">
+                        <input type="number" min={1} max={32} value={form.workers}
+                          onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
+                          className="w-full bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-xs focus:border-emerald-500/50 outline-none"
+                        />
+                      </Label>
+                    </div>
+                  </details>
+
+                  {/* Weight Controls - Read Only */}
+                  <div className="bg-black/20 rounded-lg p-3 border border-white/5">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-3">Scoring Weights (Fixed)</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                      {[
+                        { l: "Capacity", v: form.wCapacity }, { l: "Utilization", v: form.wUtil }, { l: "Congestion", v: form.wCongestion },
+                        { l: "Path Length", v: form.wPath }, { l: "Evacuation", v: form.wEvacuation }, { l: "Wait Time", v: form.wWait }
+                      ].map((item) => (
+                        <div key={item.l} className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">{item.l}</span>
+                          <span className="font-mono text-slate-200 bg-white/5 px-1.5 rounded">{item.v.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </details>
 
-                {/* Weight Controls - Read Only */}
-                <div className="bg-black/20 rounded-lg p-3 border border-white/5">
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-3">Scoring Weights (Fixed)</p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    {[
-                      { l: "Capacity", v: form.wCapacity }, { l: "Utilization", v: form.wUtil }, { l: "Congestion", v: form.wCongestion },
-                      { l: "Path Length", v: form.wPath }, { l: "Evacuation", v: form.wEvacuation }, { l: "Wait Time", v: form.wWait }
-                    ].map((item) => (
-                      <div key={item.l} className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400">{item.l}</span>
-                        <span className="font-mono text-slate-200 bg-white/5 px-1.5 rounded">{item.v.toFixed(2)}</span>
-                      </div>
-                    ))}
+                  {/* Summary Footer */}
+                  <div className="text-[11px] text-slate-400 bg-slate-900/50 rounded-lg p-3 border border-white/5 space-y-1">
+                    <div className="flex justify-between"><span>Generating:</span> <span className="text-white">{variationInfo.mapsToGenerate} maps</span></div>
+                    <div className="flex justify-between"><span>Total Sims:</span> <span className="text-emerald-400">{variationInfo.totalSimulations.toLocaleString()}</span></div>
+                    <div className="flex justify-between border-t border-white/5 pt-1 mt-1"><span>Est Time:</span> <span>~{Math.ceil(variationInfo.totalSimulations * 3 / form.workers / 60)}m</span></div>
                   </div>
-                </div>
 
-                {/* Summary Footer */}
-                <div className="text-[11px] text-slate-400 bg-slate-900/50 rounded-lg p-3 border border-white/5 space-y-1">
-                  <div className="flex justify-between"><span>Generating:</span> <span className="text-white">{variationInfo.mapsToGenerate} maps</span></div>
-                  <div className="flex justify-between"><span>Total Sims:</span> <span className="text-emerald-400">{variationInfo.totalSimulations.toLocaleString()}</span></div>
-                  <div className="flex justify-between border-t border-white/5 pt-1 mt-1"><span>Est Time:</span> <span>~{Math.ceil(variationInfo.totalSimulations * 3 / form.workers / 60)}m</span></div>
-                </div>
+                  <button
+                    onClick={handleRun}
+                    disabled={running}
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                  >
+                    {running ? (
+                      <>
+                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        Run Sweep
+                      </>
+                    )}
+                  </button>
 
-                <button
-                  onClick={handleRun}
-                  disabled={running}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
-                >
-                  {running ? (
-                    <>
-                      <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                      Run Sweep
-                    </>
+                  {/* Progress Bar */}
+                  {running && (
+                    <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="absolute top-0 left-0 h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
+                    </div>
                   )}
-                </button>
 
-                {/* Progress Bar */}
-                {running && (
-                  <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="absolute top-0 left-0 h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
-                  </div>
-                )}
-
+                </div>
               </div>
             </section>
 

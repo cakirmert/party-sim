@@ -187,17 +187,11 @@ export default function MapResultCard({ m, showHeatmaps, showMap, mapOpacity, he
                 </div>
             )}
 
-            <div className="grid md:grid-cols-4 gap-2 text-xs text-slate-300">
-                <Metric label="Path" value={m.metrics?.avgPathLength} score={m.scoreBreakdown?.path} />
-                <Metric label="Peak Density" value={m.metrics?.corridorPeakDensity} score={m.scoreBreakdown?._density} />
-                <Metric label="Avg Density" value={m.metrics?.corridorMeanDensity} />
-                <Metric label="Evac Time" value={typeof (m.metrics as any).avgExitTime === 'number' ? Math.round((m.metrics as any).avgExitTime) : '-'} score={m.scoreBreakdown?._evac} />
-            </div>
-            <div className="grid md:grid-cols-4 gap-2 text-xs text-slate-300">
-                <Metric label="Stuck %" value={((m.metrics?.stuckRate || 0) * 100).toFixed(2) + '%'} score={m.scoreBreakdown?.wait} />
-                <Metric label="Bar Util" value={m.metrics?.barOccupancyRatio} score={m.scoreBreakdown?.utilization} />
-                <Metric label="Gym Util" value={m.metrics?.gymOccupancyRatio} />
-                <Metric label="Evac Rate" value={((m.metrics as any).evacuationRate || 0).toFixed(2)} />
+            <div className="grid grid-cols-4 gap-4 mt-3 pt-3 border-t border-white/5">
+                <Metric label="Capacity" value={`${(m.metrics?.actualAgents || 0)} / ${m.metrics?.roomCapacity}`} score={m.scoreBreakdown?.capacity} />
+                <Metric label="Utilization" value={`${((m.metrics?.barOccupancyRatio || 0) * 100).toFixed(0)}% / ${((m.metrics?.gymOccupancyRatio || 0) * 100).toFixed(0)}%`} score={m.scoreBreakdown?.utilization} />
+                <Metric label="Congestion" value={(m.metrics?.corridorP95 ?? 0).toFixed(2)} score={m.scoreBreakdown?.congestion} />
+                <Metric label="Path Efficiency" value={(m.metrics?.avgPathEfficiency ? (m.metrics?.avgPathEfficiency).toFixed(0) + '%' : '-')} score={m.scoreBreakdown?.path} />
             </div>
 
             {m.params && (

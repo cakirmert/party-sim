@@ -48,6 +48,7 @@ export type RunMetrics = {
   actualAgents: number;
   avgExitTime?: number;
   evacuationRate?: number;
+  avgPathEfficiency?: number;
 };
 
 export type RunOutput = {
@@ -384,11 +385,11 @@ async function runSimulation(
     pixelsPerTile: 1,
     headless: true, // Skip events, density, perf stats for batch runs
   };
-  const engine = new Engine(cfg, map.spec);
+  const engine = new Engine(cfg);
   // Always use max capacity - pass a very high number, engine caps at room count
   engine.resetWorld(map.spec, 9999);
   const roomCapacity = engine.getRoomCapacity();
-  const actualAgents = engine.getAgentCount();
+  const actualAgents = engine.getAgents().length;
   const scenarioDay = scenario === "weekend" ? 5 : 2;
   engine.tod.dayOfWeek = scenarioDay;
 
@@ -412,9 +413,9 @@ async function runSimulation(
     }
 
     engine.stepOnce();
-    agentTicks += engine.getAgentCount();
-    engine.forEachAgent((a) => {
-      const idx = engine.map.index(a.pos.x, a.pos.y);
+    agentTicks += engine.getAgents().length;
+    engine.getAgents().forEach((a) => {
+      const idx = engine.map.index(Math.round(a.pos.x), Math.round(a.pos.y));
       if (stepCounts[idx] === 0) touched.push(idx);
       stepCounts[idx]++;
       if (a.stuckTicks >= 2) stuckTicks++;
@@ -452,6 +453,9 @@ async function runSimulation(
 
   const avgPathLength = engine.pathsMetrics.length
     ? engine.pathsMetrics.reduce((acc, p) => acc + p.length, 0) / engine.pathsMetrics.length
+    : 0;
+  const avgPathEfficiency = engine.pathsMetrics.length
+    ? engine.pathsMetrics.reduce((acc, p) => acc + (p.efficiency || 0), 0) / engine.pathsMetrics.length
     : 0;
 
   const barArea = Math.max(1, barIdx.length);
@@ -537,7 +541,7 @@ async function runSimulation(
             }
           }
 
-          if (engine.getAgentCount() === 0) break; // All gone
+          if (engine.getAgents().length === 0) break; // All gone
         }
 
         evacuationRate = exitedCount / initialCount;
@@ -645,6 +649,7 @@ async function runSimulation(
     // New metrics
     avgExitTime,
     evacuationRate,
+    avgPathEfficiency,
   };
 
   const run: RunOutput = {

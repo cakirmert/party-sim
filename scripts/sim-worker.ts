@@ -54,8 +54,7 @@ function getCachedDerived(map: BaseSpecFile, mapPath: string, agentCount: number
         baseTickRate: tickRate,
         pixelsPerTile: 1,
         headless: true,
-      },
-      map.spec
+      }
     );
     tempEngine.resetWorld(map.spec, agentCount);
     derived = computeDerivedMapData(tempEngine, map);

@@ -4,14 +4,19 @@ export type ScoringMetrics = {
     roomCapacity: number;
     actualAgents: number;
     corridorP95: number;
-    avgPathLength: number;
+    pathEfficiency: number; // 0-100 (Distance)
     stuckRate: number;
     barOccupancyRatio: number;
     gymOccupancyRatio: number;
     evacuationRate: number;
     avgExitTime: number;
+    avgIntegrity: number; // Reroute Score
     emergencyEfficiency?: number;
 };
+
+// ... (omitting ScoreBreakdown unchanged)
+
+
 
 export type ScoreBreakdown = {
     total: number;
@@ -28,9 +33,6 @@ export type ScoreBreakdown = {
 };
 
 export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
-    // Hardcoded baselines for "live" scoring since we don't have a batch to normalize against.
-    // These baselines are approximate "good" values.
-
     // Weights
     const w = {
         capacity: 0.35,
@@ -39,55 +41,32 @@ export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
         path: 0.10,
     };
 
-    // Capacity: Since we can't know global max in live mode, we treat 100% full as 100 score.
-    // If actual > capacity, it's still 100 (or should we punish? User said "highest one gets 100").
-    // Let's stick to ratio.
-    // Capacity: 
-    // If actual > capacity, it's 100.
+    // Capacity & Utilization
     const capRatio = m.roomCapacity > 0 ? (m.actualAgents / m.roomCapacity) : 0;
     const scoreCap = Math.min(100, capRatio * 100);
 
-    // Utilization: 
-    // We want to reward "active" bars/gyms. 
-    // Let's say 40% occupancy is "full vibe" (100 score).
-    const scoreBar = Math.min(100, m.barOccupancyRatio * 250); // 0.4 -> 100
+    const scoreBar = Math.min(100, m.barOccupancyRatio * 250);
     const scoreGym = Math.min(100, m.gymOccupancyRatio * 250);
     const scoreUtil = (scoreBar + scoreGym) / 2;
 
-    // Congestion
-    // Density: Lower is better. P95 of 0 is perfect (100). 
-    // P95 of 5 agents/tile is bad. Let's make it more lenient:
-    // 0 -> 100. 10 -> 0. (Current was *20 => 5->0).
-    const scoreCongDensity = Math.max(0, 100 - (m.corridorP95 * 10));
+    // Congestion (Reroute Score)
+    // Normal: avgIntegrity (100 - drops).
+    let scoreCongestionTotal = m.avgIntegrity;
 
-    // Evacuation: Rate 1 (100%) is good. Time 0s is good.
-    const scoreEvRate = m.evacuationRate * 100;
-    // Time: <30s = 100. >180s = 0.
-    const scoreEvTime = Math.max(0, 100 - Math.max(0, m.avgExitTime - 30) * (100 / 150));
-    const scoreEvac = scoreEvRate * 0.6 + scoreEvTime * 0.4;
-
-    // Stuck: 0% is good (100). 
-    // 10% stuck is bad (0). (Current was *500 => 20%->0).
-    const scoreStuck = Math.max(0, 100 - (m.stuckRate * 1000));
-
-    // Integrated Congestion: Density + Evacuation + Stuck
-    let scoreCongestionTotal = 0;
     const isEmergency = m.emergencyEfficiency !== undefined;
 
     if (isEmergency) {
-        // Emergency: Evac is critical
-        scoreCongestionTotal = (scoreCongDensity * 0.40) + (scoreEvac * 0.40) + (scoreStuck * 0.20);
-    } else {
-        // Normal: Evac is irrelevant/zero. Focus on Density & Stuck.
-        scoreCongestionTotal = (scoreCongDensity * 0.70) + (scoreStuck * 0.30);
+        const scoreEvRate = m.evacuationRate * 100;
+        const scoreEvTime = Math.max(0, 100 - Math.max(0, m.avgExitTime - 30) * (100 / 150));
+        const scoreEvac = scoreEvRate * 0.6 + scoreEvTime * 0.4;
+
+        // Emergency: Mix Evac + Reroute Score?
+        // Or just Evac?
+        scoreCongestionTotal = (scoreEvac * 0.60) + (scoreCongestionTotal * 0.40);
     }
 
-    // Path: Lower is better. 
-    // Optimal path 20. 
-    // If no paths yet (0), assume 100.
-    const scorePath = m.avgPathLength > 0
-        ? Math.max(0, 100 - Math.max(0, m.avgPathLength - 20) * (100 / 180))
-        : 100;
+    // Path (Distance)
+    const scorePath = m.pathEfficiency;
 
     const finalScore = (
         scoreCap * w.capacity +
@@ -104,9 +83,9 @@ export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
         path: Number(scorePath.toFixed(1)),
         emergency: m.emergencyEfficiency !== undefined ? Number(m.emergencyEfficiency.toFixed(1)) : undefined,
         details: {
-            density: Number(scoreCongDensity.toFixed(1)),
-            evac: isEmergency ? Number(scoreEvac.toFixed(1)) : 0,
-            wait: Number(scoreStuck.toFixed(1)), // using 'wait' field for stuck score in breakdown
+            density: Number(m.corridorP95.toFixed(1)),
+            evac: isEmergency ? Number(scoreCongestionTotal.toFixed(1)) : 0,
+            wait: 0,
         }
     };
 }

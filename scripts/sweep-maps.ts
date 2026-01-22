@@ -11,7 +11,23 @@ import {
   parseCsv,
 } from "./pipeline-utils";
 
+import {
+  buildRangesFromForm,
+  DEFAULT_PARAMETER_RANGES,
+  type ParameterRanges,
+  type VariantParams,
+} from "../src/lib/mapgen/runtime";
 import { writeFileSync } from "node:fs";
+
+function normalizeRange(r: ParameterRanges | undefined, overrides: Partial<ParameterRanges>): ParameterRanges {
+  const base = r ?? DEFAULT_PARAMETER_RANGES;
+  const merged: ParameterRanges = { ...base };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (!value) continue;
+    (merged as Record<string, unknown>)[key] = value;
+  }
+  return merged;
+}
 
 async function cli() {
   const args = parseArgv(process.argv.slice(2));
@@ -27,11 +43,28 @@ async function cli() {
   const workers = Number(args.workers) || getDefaultWorkerCount();
 
   if (!skipGenerate) {
+    // Parse ranges from CLI
+    const formRanges = buildRangesFromForm({
+      corridor: typeof args.corridor === "string" ? args.corridor : undefined,
+      bandHeight: typeof args.bandHeight === "string" ? args.bandHeight : undefined,
+      bandCount: typeof args.bandCount === "string" ? args.bandCount : undefined,
+      rowGap: typeof args.rowGap === "string" ? args.rowGap : undefined,
+      barSize: typeof args.barSize === "string" ? args.barSize : undefined,
+      barX: typeof args.barX === "string" ? args.barX : undefined,
+      barY: typeof args.barY === "string" ? args.barY : undefined,
+      gymSize: typeof args.gymSize === "string" ? args.gymSize : undefined,
+      gymX: typeof args.gymX === "string" ? args.gymX : undefined,
+      gymY: typeof args.gymY === "string" ? args.gymY : undefined,
+      exitWidth: typeof args.exitWidth === "string" ? args.exitWidth : undefined,
+      outside: typeof args.outside === "string" ? args.outside : undefined,
+    });
+    const mergedRange = normalizeRange(undefined, formRanges);
+
     await generateMaps({
       templatePath: resolve(String(args.template || "public/maps/base.json")),
       outDir: mapDir,
-      ranges: undefined,
-      explicit: undefined,
+      ranges: mergedRange,
+      explicit: undefined, // Explicit params support could be added but skipping for now
       count: Number.isFinite(count) ? count : 8,
       seed,
       prefix: String(args.prefix || "map"),

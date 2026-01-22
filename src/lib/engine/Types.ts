@@ -1,7 +1,7 @@
 export type Vec2 = { x: number; y: number };
 export type WanderTarget = { point: Vec2, room?: string };
-export type PathMetric = { length: number, room?: string };
-export type Dir = 0|1|2|3|4|5|6|7; // N,NE,E,SE,S,SW,W,NW
+// PathMetric type removed (duplicate)
+export type Dir = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7; // N,NE,E,SE,S,SW,W,NW
 export type BoundingBox = { x0: number; y0: number; x1: number; y1: number; tiles: number };
 
 type RoomMetrics = {
@@ -56,6 +56,7 @@ export interface BaseSpec {
   doorTiles?: { x: number; y: number }[];
   /** Optional gap (tiles) between stacked dorm rows; defaults to 1 */
   dormRowGap?: number;
+  corridorWidth?: number;
 }
 
 export interface EngineConfig {
@@ -76,4 +77,11 @@ export interface EngineConfig {
 
 export type SimSpeed = 0.25 | 0.5 | 1 | 2 | 4 | 8 | 16 | 32 | 64;
 
-export type AgentState = "Idle"|"Wander"|"GoingToExit"|"OffMap"|"Returning"|"Breakfast"|"AtBar"|"AtGym"|"InRoom";
+export type AgentState = "Idle" | "Wander" | "GoingToExit" | "GoingToWork" | "OffMap" | "Returning" | "Breakfast" | "AtBar" | "AtGym" | "InRoom";
+export interface PathMetric {
+  length: number;
+  efficiency: number;
+  room?: string;
+  optimal: number;
+  actual: number;
+}

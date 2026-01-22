@@ -104,3 +104,127 @@ class MinHeap<T> {
     }
   }
 }
+// ——— Advanced Pathing ———
+
+/**
+ * Computes a Dijkstra Map (distance field) from a set of target tiles.
+ * Returns a Uint16Array where value is distance * 10 (fixed point).
+ * 65535 = Unreachable.
+ */
+export function computeDijkstraMap(map: GridMap, targets: Vec2[]): Uint16Array {
+  const w = map.width, h = map.height;
+  const size = w * h;
+  const grid = new Uint16Array(size).fill(0xffff); // Max value
+
+  const idx = (x: number, y: number) => y * w + x;
+  const queue: Vec2[] = [];
+
+  for (const t of targets) {
+    if (map.inBounds(t.x, t.y)) {
+      const i = idx(t.x, t.y);
+      grid[i] = 0;
+      queue.push(t);
+    }
+  }
+
+  // FIFO Queue for BFS (Dijkstra with uniform/small integer weights is roughly BFS)
+  // Actually standard Dijkstra needed if weights vary, but here moveCost is usually 1.
+  // Standard BFS is O(N).
+
+  let head = 0;
+  while (head < queue.length) {
+    const { x, y } = queue[head++];
+    const i = idx(x, y);
+    const dist = grid[i];
+
+    // Check neighbors
+    // Using 4-neighbors or 8? Man only requests FlowField for general direction.
+    // 8-way is better for smooth movement.
+    const neighbors = [
+      { x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 },
+      { x: x + 1, y: y + 1 }, { x: x + 1, y: y - 1 }, { x: x - 1, y: y + 1 }, { x: x - 1, y: y - 1 }
+    ];
+
+    for (const n of neighbors) {
+      if (!map.inBounds(n.x, n.y)) continue;
+      const ni = idx(n.x, n.y);
+      const tile = map.get(n.x, n.y);
+      if (!tile.walkable) continue;
+
+      // Cost: 10 for straight, 14 for diagonal? Or just 1.
+      // Let's use 10/14 fixed point for precision.
+      const isDiag = (n.x !== x && n.y !== y);
+      const cost = (tile.moveCost || 1) * (isDiag ? 14 : 10);
+
+      const newDist = dist + cost;
+      if (newDist < grid[ni]) {
+        grid[ni] = newDist as number;
+        queue.push(n);
+      }
+    }
+  }
+  return grid;
+}
+
+/**
+ * Perform string pulling (path smoothing) on a path.
+ * Retains start and end. Tries to remove intermediate nodes if LOS exists.
+ */
+export function stringPull(map: GridMap, path: Vec2[]): Vec2[] {
+  if (path.length < 3) return path;
+
+  // Simple greedy algorithm
+  const newPath: Vec2[] = [path[0]];
+  let idx = 0;
+
+  while (idx < path.length - 1) {
+    let furthestIdx = idx + 1;
+    // Look ahead as far as possible
+    for (let i = idx + 2; i < path.length; i++) {
+      // Limit lookahead to avoid expensive LOS checks on huge paths?
+      // Let's try full lookahead for quality.
+      if (hasLineOfSight(map, path[idx], path[i])) {
+        furthestIdx = i;
+      } else {
+        // Optimization: If we fail LOS to i, we probably usually fail to i+1 ...
+        // But walls are complex. 
+        // For greedy string pulling, we usually just find the FIRST obstacle or furthest visible.
+        // If we assume convexity of obstacles, we can stop? No.
+      }
+    }
+    newPath.push(path[furthestIdx]);
+    idx = furthestIdx;
+  }
+  return newPath;
+}
+
+function hasLineOfSight(map: GridMap, start: Vec2, end: Vec2): boolean {
+  let x0 = start.x;
+  let y0 = start.y;
+  const x1 = end.x;
+  const y1 = end.y;
+
+  const dx = Math.abs(x1 - x0);
+  const dy = Math.abs(y1 - y0);
+  const sx = (x0 < x1) ? 1 : -1;
+  const sy = (y0 < y1) ? 1 : -1;
+  let err = dx - dy;
+
+  // Check center-to-center ray
+  // Ideally we check if the thick line passes through walls.
+  // For path smoothing, center ray is often "good enough" if we are careful.
+  // But cutting corners too close to walls might be an issue.
+  // Let's stick to simple Bresenham for now.
+
+  while (true) {
+    if (!map.inBounds(x0, y0)) return false;
+    const tile = map.get(x0, y0);
+    if (!tile.walkable) return false;
+
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x0 += sx; }
+    if (e2 < dx) { err += dx; y0 += sy; }
+  }
+  return true;
+}

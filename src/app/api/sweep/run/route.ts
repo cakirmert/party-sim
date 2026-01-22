@@ -24,6 +24,7 @@ type SweepRequest = {
   gymY?: string;
   exitWidth?: string;
   rowGap?: string;
+  corridor?: string;
   resultsDir?: string;
   heatmap?: boolean;
   wFlow?: number;
@@ -75,6 +76,7 @@ export async function POST(req: Request) {
 
   if (body.exitWidth) args.push(`--exitWidth ${body.exitWidth}`);
   if (body.rowGap) args.push(`--rowGap ${body.rowGap}`);
+  if (body.corridor) args.push(`--corridor ${body.corridor}`);
   if (body.resultsDir) args.push(`--results ${body.resultsDir}`);
   if (typeof body.wFlow === "number") args.push(`--w-flow ${body.wFlow}`);
   if (typeof body.wWait === "number") args.push(`--w-wait ${body.wWait}`);

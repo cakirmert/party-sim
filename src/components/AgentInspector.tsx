@@ -19,6 +19,10 @@ type InspectorSnapshot = {
   offMap?: { untilMinute: number; reason: string } | null;
   status: "in-world" | "off-map";
   agentType?: AgentType;
+  stepsTaken?: number;
+  pathEfficiency?: number;
+  avoidanceCount?: number;
+  isSmoker?: boolean;
 };
 
 export default function AgentInspector({ engineRef }: Props) {
@@ -37,6 +41,11 @@ export default function AgentInspector({ engineRef }: Props) {
     const sync = () => {
       const a = eng.getAgents().find(a => a.id === selectedId);
       if (a) {
+        let eff = 0;
+        if (a.pathStartPos) {
+          const dist = Math.hypot(a.pos.x - a.pathStartPos.x, a.pos.y - a.pathStartPos.y);
+          eff = (dist / Math.max(1, a.stepsTaken)) * 100;
+        }
         setSnapshot({
           id: a.id,
           name: a.name || "Agent",
@@ -48,6 +57,10 @@ export default function AgentInspector({ engineRef }: Props) {
           offMap: a.offMap ?? null,
           status: "in-world",
           agentType: a.agentType,
+          stepsTaken: a.stepsTaken,
+          pathEfficiency: eff,
+          avoidanceCount: a.avoidanceCount,
+          isSmoker: a.isSmoker,
         });
         return;
       }
@@ -96,6 +109,28 @@ export default function AgentInspector({ engineRef }: Props) {
     </div>
   );
 
+  const getFlavorText = (s: InspectorSnapshot) => {
+    if (s.offMap) return `Away (${s.offMap.reason})`;
+    if (s.state === "AtBar") {
+      if (s.agentType === "PartyAnimal") return "Partying Hard!";
+      if (s.agentType === "Bookworm") return "Reluctantly Socializing";
+      if (s.agentType === "WorkingStudent") return "Networking";
+      return "Enjoying a Drink";
+    }
+    if (s.state === "AtGym") {
+      if (s.agentType === "GymRat") return "Crushing It!";
+      return "Working Out";
+    }
+    if (s.state === "InRoom") {
+      if (s.agentType === "Bookworm") return "Reading Quietly";
+      if (s.agentType === "PartyAnimal") return "Power Napping";
+      return "Resting";
+    }
+    if (s.state === "Idle") return "Pondering Life";
+    if (s.state === "Wander") return "Going somewhere...";
+    return s.state;
+  };
+
   if (!snapshot) {
     return (
       <div className="text-sm text-slate-500 italic flex items-center justify-center h-64 min-w-[300px] bg-slate-50 rounded-lg border border-slate-100">
@@ -108,7 +143,10 @@ export default function AgentInspector({ engineRef }: Props) {
     <div className="text-sm text-slate-700 animate-in fade-in slide-in-from-bottom-2 h-64 min-w-[300px] flex flex-col">
       <div className="flex items-baseline justify-between border-b border-slate-100 pb-2 mb-2">
         <div className="flex flex-col">
-          <span className="font-bold text-lg text-slate-800">{snapshot.name}</span>
+          <span className="font-bold text-lg text-slate-800 flex items-center gap-2">
+            {snapshot.name}
+            {snapshot.isSmoker && <span title="Smoker" className="text-base">🚬</span>}
+          </span>
           <span className="text-xs font-mono text-slate-400">ID: {snapshot.id.slice(0, 8)}...</span>
         </div>
         <button
@@ -120,16 +158,36 @@ export default function AgentInspector({ engineRef }: Props) {
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-        <div><span className="text-slate-500 text-xs uppercase tracking-wide">State</span> <br /> {snapshot.state}</div>
-        <div><span className="text-slate-500 text-xs uppercase tracking-wide">Type</span> <br /> {snapshot.agentType}</div>
-        <div><span className="text-slate-500 text-xs uppercase tracking-wide">Room</span> <br /> {snapshot.roomId?.replace("R", "Room ") ?? "-"}</div>
-        <div><span className="text-slate-500 text-xs uppercase tracking-wide">Pos</span> <br /> {snapshot.pos ? `(${snapshot.pos.x}, ${snapshot.pos.y})` : "-"}</div>
+        <div className="col-span-2">
+          <span className="text-slate-500 text-xs uppercase tracking-wide">Status</span> <br />
+          <span className="font-medium text-indigo-600">
+            {snapshot.agentType} • {getFlavorText(snapshot)}
+          </span>
+        </div>
+
+        {snapshot.status === "in-world" && (
+          <>
+            <div><span className="text-slate-500 text-xs uppercase tracking-wide">Path Eff.</span> <br />
+              {snapshot.pathEfficiency ? <span className={snapshot.pathEfficiency > 80 ? "text-emerald-600" : "text-amber-600"}>{snapshot.pathEfficiency.toFixed(0)}%</span> : "-"}
+            </div>
+            <div><span className="text-slate-500 text-xs uppercase tracking-wide">Congestion</span> <br />
+              {snapshot.avoidanceCount || 0} events
+            </div>
+            <div><span className="text-slate-500 text-xs uppercase tracking-wide">Steps</span> <br />
+              {snapshot.stepsTaken ? snapshot.stepsTaken.toFixed(0) : 0}
+            </div>
+            <div><span className="text-slate-500 text-xs uppercase tracking-wide">Room</span> <br />
+              {snapshot.roomId?.replace("R", "Room ") ?? "-"}
+            </div>
+          </>
+        )}
 
         {snapshot.offMap && (
           <div className="col-span-2 bg-amber-50 text-amber-800 px-2 py-1 rounded border border-amber-100 mt-1 text-xs">
-            Off-map ({snapshot.offMap.reason}) until {fmtTime(snapshot.offMap.untilMinute)}
+            Returns at {fmtTime(snapshot.offMap.untilMinute)}
           </div>
         )}
+
       </div>
     </div>
   );

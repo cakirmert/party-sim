@@ -11,7 +11,8 @@
     "run-batch": "tsx scripts/run-batch.ts",
     "analyze-results": "tsx scripts/analyze-results.ts",
     "sweep-maps": "tsx scripts/sweep-maps.ts",
-    "sync-base-map": "tsx scripts/sync-base-map.ts"
+    "sync-base-map": "tsx scripts/sync-base-map.ts",
+    "lint": "next lint"
   },
   "dependencies": {
     "nanoid": "^5.1.6",

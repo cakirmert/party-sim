@@ -80,7 +80,7 @@ export default function MapPreview({ mapUrl, heatmapData, mapOpacity = 1, heatma
                     baseTickRate: 0,
                     pixelsPerTile: 24,
                 };
-                const engine = new Engine(cfg, json.spec);
+                const engine = new Engine(cfg);
                 // Crucial: we must call resetWorld to generate the procedural content (dorms, etc.)
                 // passing 0 agents since we only care about map structure here
                 engine.resetWorld(json.spec, 0);

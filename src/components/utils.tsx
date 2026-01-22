@@ -10,10 +10,8 @@ export const getAgentColor = (agentType: AgentType): string => {
       return "#3b82f6"; // Original Blue
     case "Balanced":
       return "#8b5cf6"; // Original Purple
-    case "Workaholic":
-      return "#64748b"; // Slate (New)
-    case "NatureLover":
-      return "#84cc16"; // Lime (New)
+    case "WorkingStudent":
+      return "#64748b"; // Slate
     default:
       return "#6b7280";
   }
