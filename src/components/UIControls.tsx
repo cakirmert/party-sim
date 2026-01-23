@@ -282,8 +282,8 @@ export default function UIControls({ engineRef }: Props) {
                   <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Total Score</span>
                   <ScoreInfo score={liveScore} />
                 </div>
-                <span className={`text-4xl font-black ${liveScore.total >= 80 ? "text-emerald-500" : liveScore.total >= 50 ? "text-amber-500" : "text-rose-500"}`}>
-                  {Number(liveScore.total).toFixed(0)}
+                <span className={`text-4xl font-black ${!liveScore ? "text-slate-300" : liveScore.total >= 80 ? "text-emerald-500" : liveScore.total >= 50 ? "text-amber-500" : "text-rose-500"}`}>
+                  {!liveScore ? "Loading..." : Number(liveScore.total).toFixed(0)}
                 </span>
               </div>
 
@@ -291,7 +291,7 @@ export default function UIControls({ engineRef }: Props) {
                 {engineRef.current?.emergencyMode ? (
                   <ScoreCard
                     label="Evacuation"
-                    val={liveScore.emergencyEfficiency}
+                    val={liveScore?.emergencyEfficiency}
                     sub="Emergency Efficiency"
                     color="bg-rose-500"
                   />
@@ -299,29 +299,29 @@ export default function UIControls({ engineRef }: Props) {
                   <>
                     <ScoreCard
                       label="Capacity"
-                      val={liveScore.capacity}
+                      val={liveScore?.capacity}
                       sub="Occupancy vs Capacity"
                       color="bg-blue-500"
                       title="Weight: 40%"
                     />
                     <ScoreCard
                       label="Room Usage"
-                      val={liveScore.utilization}
+                      val={liveScore?.utilization}
                       sub="Room Occupancy vs Capacity"
                       color="bg-cyan-500"
                       title="Weight: 20%"
                     />
                     <ScoreCard
                       label="Congestion"
-                      val={liveScore.congestion}
-                      sub="Congestion"
+                      val={liveScore?.congestion}
+                      sub="Raw Badness (0 is Good)"
                       color="bg-amber-500"
                       title="Weight: 25%"
                     />
                     <ScoreCard
-                      label="Path Efficiency"
-                      val={liveScore.path}
-                      sub="Avg. Path Overhead"
+                      label="Path Eff."
+                      val={liveScore?.path}
+                      sub="Avg Proximity to POIs"
                       color="bg-indigo-500"
                       title="Weight: 15%"
                     />
@@ -335,96 +335,98 @@ export default function UIControls({ engineRef }: Props) {
 
       {/* Map Params Panel */}
       {showMapParams && (
-        <div className="w-full grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 bg-slate-50 border border-slate-200 rounded p-2 z-40 relative shadow-lg">
-          <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Row Gap
-            <input
-              type="number"
-              min={1}
-              max={4}
-              value={mapParams.dormRowGap}
-              onChange={e => setMapParams({ dormRowGap: Number(e.target.value) })}
-              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-              title="Gap between stacked room rows. Max 4 to prevent room loss."
-            />
-          </label>
-          <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Bar W×H
-            <div className="flex gap-1">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <label className="text-xs text-slate-600 flex flex-col gap-1">
+              Row Gap
               <input
                 type="number"
-                min={4}
-                max={24}
-                value={mapParams.barWidth}
-                onChange={e => setMapParams({ barWidth: Number(e.target.value) })}
+                min={1}
+                max={4}
+                value={mapParams.dormRowGap}
+                onChange={e => setMapParams({ dormRowGap: Number(e.target.value) })}
                 className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                title="Gap between stacked room rows. Max 4 to prevent room loss."
               />
-              <input
-                type="number"
-                min={4}
-                max={16}
-                value={mapParams.barHeight}
-                onChange={e => setMapParams({ barHeight: Number(e.target.value) })}
-                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-              />
-            </div>
-          </label>
-          <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Gym W×H
-            <div className="flex gap-1">
+            </label>
+            <label className="text-xs text-slate-600 flex flex-col gap-1">
+              Bar W×H
+              <div className="flex gap-1">
+                <input
+                  type="number"
+                  min={4}
+                  max={24}
+                  value={mapParams.barWidth}
+                  onChange={e => setMapParams({ barWidth: Number(e.target.value) })}
+                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                />
+                <input
+                  type="number"
+                  min={4}
+                  max={16}
+                  value={mapParams.barHeight}
+                  onChange={e => setMapParams({ barHeight: Number(e.target.value) })}
+                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                />
+              </div>
+            </label>
+            <label className="text-xs text-slate-600 flex flex-col gap-1">
+              Gym W×H
+              <div className="flex gap-1">
+                <input
+                  type="number"
+                  min={4}
+                  max={20}
+                  value={mapParams.gymWidth}
+                  onChange={e => setMapParams({ gymWidth: Number(e.target.value) })}
+                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                />
+                <input
+                  type="number"
+                  min={4}
+                  max={12}
+                  value={mapParams.gymHeight}
+                  onChange={e => setMapParams({ gymHeight: Number(e.target.value) })}
+                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                />
+              </div>
+            </label>
+            <label className="text-xs text-slate-600 flex flex-col gap-1">
+              Exit Width
               <input
                 type="number"
                 min={4}
                 max={20}
-                value={mapParams.gymWidth}
-                onChange={e => setMapParams({ gymWidth: Number(e.target.value) })}
+                value={mapParams.exitWidth}
+                onChange={e => setMapParams({ exitWidth: Number(e.target.value) })}
                 className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
               />
+            </label>
+            <label className="text-xs text-slate-600 flex flex-col gap-1">
+              Corridor Width
               <input
                 type="number"
-                min={4}
+                min={2}
                 max={12}
-                value={mapParams.gymHeight}
-                onChange={e => setMapParams({ gymHeight: Number(e.target.value) })}
+                value={mapParams.corridorWidth}
+                onChange={e => setMapParams({ corridorWidth: Number(e.target.value) })}
                 className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                title="Main vertical corridor width. Max 12."
               />
-            </div>
-          </label>
-          <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Exit Width
-            <input
-              type="number"
-              min={4}
-              max={20}
-              value={mapParams.exitWidth}
-              onChange={e => setMapParams({ exitWidth: Number(e.target.value) })}
-              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-            />
-          </label>
-          <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Corridor Width
-            <input
-              type="number"
-              min={2}
-              max={12}
-              value={mapParams.corridorWidth}
-              onChange={e => setMapParams({ corridorWidth: Number(e.target.value) })}
-              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-              title="Main vertical corridor width. Max 12."
-            />
-          </label>
-          <label className="text-xs text-slate-600 flex flex-col gap-1">
-            Bands
-            <input
-              type="number"
-              min={0}
-              max={8}
-              value={mapParams.bandCount}
-              onChange={e => setMapParams({ bandCount: Number(e.target.value) })}
-              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-              title="Number of vertical bands (0 = auto-fill)."
-            />
-          </label>
+            </label>
+            <label className="text-xs text-slate-600 flex flex-col gap-1">
+              Bands
+              <input
+                type="number"
+                min={0}
+                max={8}
+                value={mapParams.bandCount}
+                onChange={e => setMapParams({ bandCount: Number(e.target.value) })}
+                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+                title="Number of vertical bands (0 = auto-fill)."
+              />
+            </label>
+          </div>
         </div>
       )}
 
@@ -464,17 +466,20 @@ export default function UIControls({ engineRef }: Props) {
   );
 }
 
-function ScoreCard({ label, val, sub, color, title }: { label: string; val: number; sub: string; color: string; title?: string }) {
+function ScoreCard({ label, val, sub, color, title }: { label: string; val: number | undefined | null; sub: string; color: string; title?: string }) {
+  const isLoading = val === undefined || val === null;
   const safeVal = val ?? 0;
   const w = Math.min(100, Math.max(0, safeVal));
   return (
     <div className="flex flex-col gap-1 min-w-[120px]" title={title}>
       <div className="flex justify-between items-baseline">
         <span className="text-sm font-bold text-slate-700">{label}</span>
-        <span className="text-sm font-mono font-medium text-slate-500">{safeVal.toFixed(0)}</span>
+        <span className="text-sm font-mono font-medium text-slate-500">
+          {isLoading ? "..." : safeVal.toFixed(0)}
+        </span>
       </div>
       <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${w}%` }}></div>
+        <div className={`h-full rounded-full transition-all duration-500 ${isLoading ? "bg-slate-200" : color}`} style={{ width: `${w}%` }}></div>
       </div>
       <span className="text-[10px] text-slate-400">{sub}</span>
     </div>

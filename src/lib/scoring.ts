@@ -49,15 +49,8 @@ export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
     const gymScore = Math.min(100, (m.gymOccupancyRatio / 0.5) * 100);
     const scoreUtil = (barScore + gymScore) / 2;
 
-    // Congestion (Reroute Penalty)
-    // Each reroute penalizes score. Start at 100?
-    // User: "start with 0 and increase each time... (badness)".
-    // But Score is usually goodness.
-    // "Congestion should be minus" -> Maybe they want a negative score display?
-    // Or they want the "Value" to be the count (0 -> Inf), and Score to be (100 -> 0).
-    // Let's assume Score = 100 - (Count * 1).
-    // If we have 100 reroutes, score is 0.
-    const scoreCongestionTotal = Math.max(0, 100 - (m.rerouteCount * 2));
+    // Congestion Score: Starts at 100 (0 reroutes), decreases as reroutes increase.
+    const scoreCongestionTotal = 100 - m.rerouteCount;
 
     const isEmergency = m.emergencyEfficiency !== undefined;
 
@@ -84,7 +77,7 @@ export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
         total: Number(finalScore.toFixed(1)),
         capacity: Number(scoreCap.toFixed(1)),
         utilization: Number(scoreUtil.toFixed(1)),
-        congestion: Number(scoreCongestionTotal.toFixed(1)),
+        congestion: Number(m.rerouteCount.toFixed(1)), // Display Raw "Badness" (Starts at 0)
         path: Number(scorePath.toFixed(1)),
         emergency: m.emergencyEfficiency !== undefined ? Number(m.emergencyEfficiency.toFixed(1)) : undefined,
         details: {

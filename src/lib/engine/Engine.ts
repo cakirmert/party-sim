@@ -12,7 +12,7 @@ const BREAKFAST_MINUTES = 30;
 const POI_DWELL_MIN = 120;
 const POI_DWELL_MAX = 240;
 const RECENT_TILE_HISTORY = 6;
-const STUCK_SEARCH_TICKS = 15;
+const STUCK_SEARCH_TICKS = 5; // Reduced from 15 to make rerouting/congestion more sensitive
 const LOCAL_SEARCH_RADIUS = 0; // 0 => unlimited
 const LOCAL_SEARCH_MAX_NODES = 60000;
 const NAV_SEARCH_MAX_NODES = 20000;
@@ -1130,11 +1130,12 @@ export class Engine {
     this.perfTimer += dtSec;
     this.ticksThisSecond++;
 
-    // Decay congestion (User: "go lower as time passes")
-    // Decay by 1 per second? Or 5%?
-    // At 20 TPS, decay factor per tick 0.99?
+    // Decay MORE SLOWLY to allow accumulation.
     if (this.congestionLevel > 0) {
-      this.congestionLevel = Math.max(0, this.congestionLevel - (dtSec * 5)); // Decay 5 points per second
+      this.congestionLevel = Math.max(0, this.congestionLevel - (dtSec * 4)); // Reduced decay from 5 to 4
+    }
+    if (this.tickCount % 60 === 0 && this.congestionLevel > 0) {
+      console.log(`[Congestion] Level: ${this.congestionLevel.toFixed(2)}`);
     }
 
     // Update Max Occupancy Persistence (Check every tick for peak)
@@ -1261,6 +1262,7 @@ export class Engine {
         let step = this.chooseLocalStep(a, occupiedTiles);
         if (!step) {
           blockedThisTick = true;
+          this.congestionLevel += 0.2; // Minor congestion for waiting
           a.stuckTicks = Math.min(a.stuckTicks + 1, 1000);
           // Simplified: After waiting, just try any random walkable direction (no expensive A*)
           if (a.stuckTicks >= STUCK_SEARCH_TICKS) {
@@ -1326,6 +1328,11 @@ export class Engine {
                 // Update Map (Set remains same)
                 occupiedMap.set(this.keyOf(aPos), blocker);
                 occupiedMap.set(this.keyOf(bPos), a);
+
+                occupiedMap.set(this.keyOf(aPos), blocker);
+                occupiedMap.set(this.keyOf(bPos), a);
+
+                this.congestionLevel += 0.5; // Moderate congestion for swapping (crowding)
 
                 swapped = true;
                 movedThisTick = true;
