@@ -3,15 +3,17 @@ import React from "react";
 /**
  * Common labeling system with optional help hint.
  */
-export function FormLabel({ text, hint, children, className = "" }: {
+export function FormLabel({ text, hint, children, className = "", theme = "dark" }: {
     text: string;
     hint?: string;
     children: React.ReactNode;
     className?: string;
+    theme?: "dark" | "light";
 }) {
+    const textColor = theme === "light" ? "text-slate-600" : "text-slate-300";
     return (
         <label className={`flex flex-col gap-1.5 ${className}`}>
-            <span className="text-slate-600 text-sm font-medium flex items-center gap-1.5">
+            <span className={`${textColor} text-sm font-medium flex items-center gap-1.5`}>
                 {text}
             </span>
             {hint && (
@@ -35,7 +37,8 @@ export function FormInput({
     min,
     max,
     step,
-    title
+    title,
+    theme = "dark"
 }: {
     type?: "text" | "number";
     value: string | number;
@@ -47,7 +50,12 @@ export function FormInput({
     max?: number;
     step?: number;
     title?: string;
+    theme?: "dark" | "light";
 }) {
+    const baseStyle = theme === "light"
+        ? "bg-white border-slate-300 text-slate-800 placeholder:text-slate-400"
+        : "bg-black/40 border-white/10 text-slate-200 placeholder:text-slate-600";
+
     return (
         <input
             type={type}
@@ -60,8 +68,8 @@ export function FormInput({
             step={step}
             title={title}
             className={`
-        w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm 
-        text-slate-800 placeholder:text-slate-400 outline-none
+        w-full border rounded-lg px-3 py-2 text-sm outline-none
+        ${baseStyle}
         focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 
         transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
         ${className}
@@ -73,9 +81,10 @@ export function FormInput({
 /**
  * Section header for grouping form elements.
  */
-export function SectionHeader({ text, className = "" }: { text: string; className?: string }) {
+export function SectionHeader({ text, className = "", theme = "dark" }: { text: string; className?: string; theme?: "dark" | "light" }) {
+    const borderColor = theme === "light" ? "border-slate-200" : "border-white/5";
     return (
-        <h3 className={`text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] py-1 border-b border-slate-200 mb-2 ${className}`}>
+        <h3 className={`text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] py-1 border-b ${borderColor} mb-2 ${className}`}>
             {text}
         </h3>
     );

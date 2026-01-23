@@ -332,13 +332,13 @@ export default function UIControls({ engineRef }: Props) {
       {/* Map Params Panel */}
       {showMapParams && (
         <div className="bg-white/95 border border-slate-200 rounded-2xl p-5 shadow-xl ring-1 ring-slate-200 backdrop-blur-xl">
-          <SectionHeader text="Map Generation Parameters" />
+          <SectionHeader text="Map Generation Parameters" theme="light" />
 
           <div className="space-y-6">
             {/* Primary Config */}
             <section>
               <FormGrid>
-                <FormLabel text="Corridor Width" hint="Main walkway tiles">
+                <FormLabel text="Corridor Width" hint="Main walkway tiles" theme="light">
                   <FormInput
                     type="number"
                     min={2}
@@ -346,9 +346,10 @@ export default function UIControls({ engineRef }: Props) {
                     value={mapParams.corridorWidth}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ corridorWidth: Number(e.target.value) })}
                     title="Main vertical corridor width. Max 12."
+                    theme="light"
                   />
                 </FormLabel>
-                <FormLabel text="Dorm Row Gap" hint="Vertical spacing">
+                <FormLabel text="Dorm Row Gap" hint="Vertical spacing" theme="light">
                   <FormInput
                     type="number"
                     min={1}
@@ -356,18 +357,20 @@ export default function UIControls({ engineRef }: Props) {
                     value={mapParams.dormRowGap}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ dormRowGap: Number(e.target.value) })}
                     title="Gap between stacked room rows. Max 4 to prevent room loss."
+                    theme="light"
                   />
                 </FormLabel>
-                <FormLabel text="Exit Width" hint="Total exit span">
+                <FormLabel text="Exit Width" hint="Total exit span" theme="light">
                   <FormInput
                     type="number"
                     min={4}
                     max={20}
                     value={mapParams.exitWidth}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ exitWidth: Number(e.target.value) })}
+                    theme="light"
                   />
                 </FormLabel>
-                <FormLabel text="Bands" hint="Vertical sections (0=auto)">
+                <FormLabel text="Bands" hint="Vertical sections (0=auto)" theme="light">
                   <FormInput
                     type="number"
                     min={0}
@@ -375,6 +378,7 @@ export default function UIControls({ engineRef }: Props) {
                     value={mapParams.bandCount}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ bandCount: Number(e.target.value) })}
                     title="Number of vertical bands (0 = auto-fill)."
+                    theme="light"
                   />
                 </FormLabel>
               </FormGrid>
@@ -383,7 +387,7 @@ export default function UIControls({ engineRef }: Props) {
             {/* POI Dimensions */}
             <section className="pt-4 border-t border-slate-200">
               <FormGrid>
-                <FormLabel text="Bar Dimensions" hint="Width × Height">
+                <FormLabel text="Bar Dimensions" hint="Width × Height" theme="light">
                   <div className="flex gap-2">
                     <FormInput
                       type="number"
@@ -392,6 +396,7 @@ export default function UIControls({ engineRef }: Props) {
                       value={mapParams.barWidth}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ barWidth: Number(e.target.value) })}
                       placeholder="W"
+                      theme="light"
                     />
                     <FormInput
                       type="number"
@@ -400,10 +405,11 @@ export default function UIControls({ engineRef }: Props) {
                       value={mapParams.barHeight}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ barHeight: Number(e.target.value) })}
                       placeholder="H"
+                      theme="light"
                     />
                   </div>
                 </FormLabel>
-                <FormLabel text="Gym Dimensions" hint="Width × Height">
+                <FormLabel text="Gym Dimensions" hint="Width × Height" theme="light">
                   <div className="flex gap-2">
                     <FormInput
                       type="number"
@@ -412,6 +418,7 @@ export default function UIControls({ engineRef }: Props) {
                       value={mapParams.gymWidth}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ gymWidth: Number(e.target.value) })}
                       placeholder="W"
+                      theme="light"
                     />
                     <FormInput
                       type="number"
@@ -420,6 +427,7 @@ export default function UIControls({ engineRef }: Props) {
                       value={mapParams.gymHeight}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ gymHeight: Number(e.target.value) })}
                       placeholder="H"
+                      theme="light"
                     />
                   </div>
                 </FormLabel>
