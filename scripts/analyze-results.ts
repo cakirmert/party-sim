@@ -226,6 +226,8 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
     utilization: 0.20,
     congestion: 0.25,
     path: 0.15,
+    wait: 0,
+    evacuation: 0,
   };
 
   for (const item of items) {
@@ -423,6 +425,8 @@ async function cli() {
       utilization: Number(args["w-util"] ?? 0.20),
       congestion: Number(args["w-congestion"] ?? 0.25),
       path: Number(args["w-path"] ?? 0.15),
+      wait: Number(args["w-wait"] ?? 0),
+      evacuation: Number(args["w-evacuation"] ?? 0),
     }
   };
   await analyzeResults(resultsDir, outDir, weights);
