@@ -222,12 +222,10 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
 
   // Default weights matching notes.md
   const w = cfg.weights || {
-    capacity: 0.35,
+    capacity: 0.40,
     utilization: 0.20,
-    congestion: 0.30, // Merged Conestion (0.15) + Evacuation (0.15)
-    path: 0.10,
-    wait: 0.05,
-    // evacuation removed as top-level
+    congestion: 0.25,
+    path: 0.15,
   };
 
   for (const item of items) {
@@ -421,12 +419,10 @@ async function cli() {
   const outDir = resolve(String(args.outDir || resolve(resultsDir, "analysis")));
   const weights: WeightConfig = {
     weights: {
-      capacity: Number(args["w-capacity"] ?? 0.35),
+      capacity: Number(args["w-capacity"] ?? 0.40),
       utilization: Number(args["w-util"] ?? 0.20),
-      congestion: Number(args["w-congestion"] ?? 0.15),
-      path: Number(args["w-path"] ?? 0.10),
-      evacuation: Number(args["w-evacuation"] ?? 0.15),
-      wait: Number(args["w-wait"] ?? 0.05),
+      congestion: Number(args["w-congestion"] ?? 0.25),
+      path: Number(args["w-path"] ?? 0.15),
     }
   };
   await analyzeResults(resultsDir, outDir, weights);

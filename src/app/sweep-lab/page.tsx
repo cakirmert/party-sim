@@ -58,12 +58,12 @@ const DEFAULT_FORM = {
   exitWidth: "10,12",
   heatmap: true,
   resultsDir: "results",
-  wCapacity: 0.35,
+  wCapacity: 0.40,
   wUtil: 0.20,
-  wCongestion: 0.15,
-  wPath: 0.10,
-  wEvacuation: 0.15,
-  wWait: 0.05,
+  wCongestion: 0.25,
+  wPath: 0.15,
+  wEvacuation: 0,
+  wWait: 0,
   // Parallel execution
   parallel: true,
   workers: DEFAULT_WORKERS,
@@ -305,74 +305,64 @@ export default function SweepLabPage() {
                 </div>
 
                 <div className="pt-4 border-t border-white/5 space-y-4">
-                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Map Parameters</h3>
+                  <div className="pt-4 border-t border-white/5 space-y-4">
+                    <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Map Parameters</h3>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <FormLabel text="Corridor Width" hint="Tiles (e.g. 2,3)">
-                      <FormInput type="text" value={form.corridor}
-                        onChange={(e) => setForm({ ...form, corridor: e.target.value })}
-                        placeholder="2,3"
-                        className="font-mono"
-                      />
-                    </FormLabel>
-                    <FormLabel text="Dorm Row Gap" hint="Vertical spacing">
-                      <FormInput type="text" value={form.rowGap}
-                        onChange={(e) => setForm({ ...form, rowGap: e.target.value })}
-                        placeholder="2,3,4"
-                        className="font-mono"
-                      />
-                    </FormLabel>
-                  </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormLabel text="Corridor Width" hint="Tiles (e.g. 2,3)">
+                        <FormInput type="text" value={form.corridor}
+                          onChange={(e) => setForm({ ...form, corridor: e.target.value })}
+                          placeholder="2,3"
+                          className="font-mono"
+                        />
+                      </FormLabel>
+                      <FormLabel text="Dorm Row Gap" hint="Vertical spacing">
+                        <FormInput type="text" value={form.rowGap}
+                          onChange={(e) => setForm({ ...form, rowGap: e.target.value })}
+                          placeholder="2,3,4"
+                          className="font-mono"
+                        />
+                      </FormLabel>
+                    </div>
 
-                  {/* Seed Input Hidden (Fixed to random/default internally or just not shown) */}
-                  {/* <Label text="Base Seed" hint="Random seed">
-                    <input type="text" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })}
-                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono text-slate-300 focus:border-emerald-500/50 outline-none transition-all"
-                    />
-                  </Label> */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormLabel text="Exit Width" hint="Spawn/Despawn zone">
+                        <FormInput type="text" value={form.exitWidth}
+                          onChange={(e) => setForm({ ...form, exitWidth: e.target.value })}
+                          placeholder="10,12"
+                          className="font-mono"
+                        />
+                      </FormLabel>
+                      <FormLabel text="Concurrency" hint="Parallel Workers">
+                        <FormInput type="number" min={1} max={32} value={form.workers}
+                          onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
+                        />
+                      </FormLabel>
+                    </div>
 
-                  {/* Advanced Map Params Collapsible */}
-                  <details className="group bg-black/20 rounded-lg border border-white/5 open:bg-black/40 transition-colors">
-                    <summary className="cursor-pointer p-3 text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-slate-300 flex items-center justify-between select-none">
-                      Map Generation Params
-                      <svg className="w-4 h-4 transition-transform group-open:rotate-180 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                    </summary>
-                    <div className="p-3 pt-0 grid gap-3 text-xs">
+                    <div className="grid grid-cols-1 gap-3">
                       <FormLabel text="Bar Dimensions (CSV)" hint="Widths, Heights (e.g. 14,16)">
                         <div className="grid grid-cols-2 gap-2">
-                          <FormInput placeholder="Widths" value={form.barX} onChange={e => setForm({ ...form, barX: e.target.value })} className="px-2 py-1.5" />
-                          <FormInput placeholder="Heights" value={form.barY} onChange={e => setForm({ ...form, barY: e.target.value })} className="px-2 py-1.5" />
+                          <FormInput placeholder="Widths" value={form.barX} onChange={e => setForm({ ...form, barX: e.target.value })} />
+                          <FormInput placeholder="Heights" value={form.barY} onChange={e => setForm({ ...form, barY: e.target.value })} />
                         </div>
                       </FormLabel>
                       <FormLabel text="Gym Dimensions (CSV)" hint="Widths, Heights">
                         <div className="grid grid-cols-2 gap-2">
-                          <FormInput placeholder="Widths" value={form.gymX} onChange={e => setForm({ ...form, gymX: e.target.value })} className="px-2 py-1.5" />
-                          <FormInput placeholder="Heights" value={form.gymY} onChange={e => setForm({ ...form, gymY: e.target.value })} className="px-2 py-1.5" />
+                          <FormInput placeholder="Widths" value={form.gymX} onChange={e => setForm({ ...form, gymX: e.target.value })} />
+                          <FormInput placeholder="Heights" value={form.gymY} onChange={e => setForm({ ...form, gymY: e.target.value })} />
                         </div>
-                      </FormLabel>
-                      <FormLabel text="Layout" hint="Row gaps, Exit widths">
-                        <div className="grid grid-cols-2 gap-2">
-                          <FormInput placeholder="Gap (2,3)" value={form.rowGap} onChange={e => setForm({ ...form, rowGap: e.target.value })} className="px-2 py-1.5" />
-                          <FormInput placeholder="Exit (10,12)" value={form.exitWidth} onChange={e => setForm({ ...form, exitWidth: e.target.value })} className="px-2 py-1.5" />
-                        </div>
-                      </FormLabel>
-
-                      <FormLabel text="Concurrency" hint="Parallel Workers">
-                        <FormInput type="number" min={1} max={32} value={form.workers}
-                          onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
-                          className="px-2 py-1"
-                        />
                       </FormLabel>
                     </div>
-                  </details>
+                  </div>
 
                   {/* Weight Controls - Read Only */}
                   <div className="bg-black/20 rounded-lg p-3 border border-white/5">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-3">Scoring Weights (Fixed)</p>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                       {[
-                        { l: "Capacity", v: form.wCapacity }, { l: "Utilization", v: form.wUtil }, { l: "Congestion", v: form.wCongestion },
-                        { l: "Path Length", v: form.wPath }, { l: "Evacuation", v: form.wEvacuation }, { l: "Wait Time", v: form.wWait }
+                        { l: "Capacity", v: form.wCapacity }, { l: "Utilization", v: form.wUtil },
+                        { l: "Congestion", v: form.wCongestion }, { l: "Path Eff.", v: form.wPath },
                       ].map((item) => (
                         <div key={item.l} className="flex items-center justify-between text-xs">
                           <span className="text-slate-400">{item.l}</span>
