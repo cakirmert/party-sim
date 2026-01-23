@@ -29,6 +29,7 @@ type RunMetrics = {
   coverageRatio: number;
   avgExitTime?: number;
   evacuationRate?: number;
+  avgCongestionDensity?: number;
 };
 
 type RunOutput = {
@@ -61,6 +62,7 @@ type Aggregated = {
     actualAgents: number;
     avgExitTime: number;
     evacuationRate: number;
+    avgCongestionDensity: number;
   };
   score: number;
   rank: number;
@@ -145,6 +147,7 @@ function aggregateRuns(runs: RunOutput[]): Aggregated[] {
       actualAgents: mean(list.map(r => (r.metrics as any).actualAgents || 0)),
       avgExitTime: mean(list.map(r => r.metrics.avgExitTime || 0)),
       evacuationRate: mean(list.map(r => r.metrics.evacuationRate || 0)),
+      avgCongestionDensity: mean(list.map(r => r.metrics.avgCongestionDensity || 0)),
     };
 
     const heatmaps = list
@@ -201,7 +204,7 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
   const capacityVals = items.map(i => i.metrics.roomCapacity || i.metrics.actualAgents);
   const barVals = items.map(i => i.metrics.barOccupancyRatio);
   const gymVals = items.map(i => i.metrics.gymOccupancyRatio);
-  const congestionVals = items.map(i => i.metrics.corridorP95);
+  const congestionDensityVals = items.map(i => i.metrics.avgCongestionDensity);
   const pathVals = items.map(i => i.metrics.avgPathLength);
   const evacRateVals = items.map(i => (i.metrics as any).evacuationRate || 0);
   const evacTimeVals = items.map(i => (i.metrics as any).avgExitTime || 9999);
@@ -211,7 +214,7 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
   const sCap = getStats(capacityVals);
   const sBar = getStats(barVals);
   const sGym = getStats(gymVals);
-  const sCong = getStats(congestionVals);
+  const sCongDensity = getStats(congestionDensityVals);
   const sPath = getStats(pathVals);
   const sEvRate = getStats(evacRateVals);
   const sEvTime = getStats(evacTimeVals);
@@ -233,10 +236,10 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
     // 2. Compute 0-100 Score for each Metric (Bell Curve grading)
     // Formula: 50 + (Z * 15), clamped to [0, 100]
 
-    // Capacity: Target is 150.
+    // Capacity: Comparative scaling. Highest capacity in set gets 100.
+    const maxCapacity = Math.max(...capacityVals, 1);
     const capVal = m.roomCapacity || m.actualAgents;
-    const capDist = Math.abs(capVal - 150);
-    const scoreCap = Math.max(0, 100 - (capDist * 0.5));
+    const scoreCap = (capVal / maxCapacity) * 100;
 
     // Utilization (Bar & Gym)
     const zBar = normalizeZ(m.barOccupancyRatio, sBar.mean, sBar.stdDev, true);
@@ -248,7 +251,8 @@ function scoreMaps(items: Aggregated[], cfg: WeightConfig): Aggregated[] {
     const scoreUtil = (scoreBar + scoreGym) / 2;
 
     // Congestion (Pure Density Component)
-    const zCong = normalizeZ(m.corridorP95, sCong.mean, sCong.stdDev, true);
+    // Use avgCongestionDensity instead of corridorP95 to match live sim
+    const zCong = normalizeZ(m.avgCongestionDensity, sCongDensity.mean, sCongDensity.stdDev, true);
     const scoreCongDensity = Math.max(0, Math.min(100, 50 + zCong * 15));
 
     // Path

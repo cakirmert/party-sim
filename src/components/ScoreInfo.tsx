@@ -61,10 +61,10 @@ export const ScoreInfo: React.FC<ScoreInfoProps> = ({ score }) => {
                 <div className="mt-3 pt-3 border-t border-slate-700 text-[10px] text-slate-400">
                     <div className="font-semibold text-slate-300 mb-1">Total Score Calculation</div>
                     <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-                        <span>Capacity:</span> <span className="text-right">35%</span>
+                        <span>Capacity:</span> <span className="text-right">40%</span>
                         <span>Utilization:</span> <span className="text-right">20%</span>
-                        <span>Congestion:</span> <span className="text-right">35%</span>
-                        <span>Path Efficiency:</span> <span className="text-right">10%</span>
+                        <span>Congestion:</span> <span className="text-right">25%</span>
+                        <span>Path Efficiency:</span> <span className="text-right">15%</span>
                     </div>
                 </div>
             </div>

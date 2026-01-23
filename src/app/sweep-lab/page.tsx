@@ -9,6 +9,7 @@ import {
   calculateVariationCount,
 } from "@/lib/mapgen/runtime";
 import MapResultCard from "./MapResultCard";
+import { FormLabel, FormInput } from "@/components/FormElements";
 
 type MapRow = {
   map: string;
@@ -275,57 +276,52 @@ export default function SweepLabPage() {
               <div className="space-y-4">
                 {/* Primary Stats Grid */}
                 <div className="grid grid-cols-2 gap-3">
-                  <Label text="Map Variations" hint={`Max unique layouts: ${variationInfo.total}`}>
+                  <FormLabel text="Map Variations" hint={`Max unique layouts: ${variationInfo.total}`}>
                     <div className="relative">
-                      <input type="number" min={1} max={variationInfo.total} value={form.count}
+                      <FormInput type="number" min={1} max={variationInfo.total} value={form.count}
                         onChange={(e) => setForm({ ...form, count: Math.min(Number(e.target.value), variationInfo.total) })}
-                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
                       />
                       <div className="absolute right-0 top-0 bottom-0 flex items-center px-3 pointer-events-none text-xs text-slate-500">
                         / {variationInfo.total}
                       </div>
                     </div>
-                  </Label>
-                  <Label text="Runs / Map" hint="Seeds per map">
-                    <input type="number" min={1} max={5} value={form.runs}
+                  </FormLabel>
+                  <FormLabel text="Runs / Map" hint="Seeds per map">
+                    <FormInput type="number" min={1} max={5} value={form.runs}
                       onChange={(e) => setForm({ ...form, runs: Number(e.target.value) })}
-                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
                     />
-                  </Label>
+                  </FormLabel>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <Label text="Sim Duration" hint="Minutes (1200 = 20h)">
-                    <input type="number" min={60} value={form.minutes}
+                  <FormLabel text="Sim Duration" hint="Minutes (1200 = 20h)">
+                    <FormInput type="number" min={60} value={form.minutes}
                       onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })}
-                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
                     />
-                  </Label>
-                  <Label text="Agent Capacity" hint="Auto-filled to max potential">
-                    <input type="text" value="Max (Auto)" disabled
-                      className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
-                    />
-                  </Label>
+                  </FormLabel>
+                  <FormLabel text="Agent Capacity" hint="Auto-filled to max potential">
+                    <FormInput type="text" value="Max (Auto)" disabled onChange={() => { }} />
+                  </FormLabel>
                 </div>
 
                 <div className="pt-4 border-t border-white/5 space-y-4">
                   <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Map Parameters</h3>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <Label text="Corridor Width" hint="Tiles (e.g. 2,3)">
-                      <input type="text" value={form.corridor}
+                    <FormLabel text="Corridor Width" hint="Tiles (e.g. 2,3)">
+                      <FormInput type="text" value={form.corridor}
                         onChange={(e) => setForm({ ...form, corridor: e.target.value })}
                         placeholder="2,3"
-                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all font-mono"
+                        className="font-mono"
                       />
-                    </Label>
-                    <Label text="Dorm Row Gap" hint="Vertical spacing">
-                      <input type="text" value={form.rowGap}
+                    </FormLabel>
+                    <FormLabel text="Dorm Row Gap" hint="Vertical spacing">
+                      <FormInput type="text" value={form.rowGap}
                         onChange={(e) => setForm({ ...form, rowGap: e.target.value })}
                         placeholder="2,3,4"
-                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all font-mono"
+                        className="font-mono"
                       />
-                    </Label>
+                    </FormLabel>
                   </div>
 
                   {/* Seed Input Hidden (Fixed to random/default internally or just not shown) */}
@@ -342,31 +338,31 @@ export default function SweepLabPage() {
                       <svg className="w-4 h-4 transition-transform group-open:rotate-180 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                     </summary>
                     <div className="p-3 pt-0 grid gap-3 text-xs">
-                      <Label text="Bar Dimensions (CSV)" hint="Widths, Heights (e.g. 14,16)">
+                      <FormLabel text="Bar Dimensions (CSV)" hint="Widths, Heights (e.g. 14,16)">
                         <div className="grid grid-cols-2 gap-2">
-                          <input placeholder="Widths" value={form.barX} onChange={e => setForm({ ...form, barX: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
-                          <input placeholder="Heights" value={form.barY} onChange={e => setForm({ ...form, barY: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                          <FormInput placeholder="Widths" value={form.barX} onChange={e => setForm({ ...form, barX: e.target.value })} className="px-2 py-1.5" />
+                          <FormInput placeholder="Heights" value={form.barY} onChange={e => setForm({ ...form, barY: e.target.value })} className="px-2 py-1.5" />
                         </div>
-                      </Label>
-                      <Label text="Gym Dimensions (CSV)" hint="Widths, Heights">
+                      </FormLabel>
+                      <FormLabel text="Gym Dimensions (CSV)" hint="Widths, Heights">
                         <div className="grid grid-cols-2 gap-2">
-                          <input placeholder="Widths" value={form.gymX} onChange={e => setForm({ ...form, gymX: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
-                          <input placeholder="Heights" value={form.gymY} onChange={e => setForm({ ...form, gymY: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                          <FormInput placeholder="Widths" value={form.gymX} onChange={e => setForm({ ...form, gymX: e.target.value })} className="px-2 py-1.5" />
+                          <FormInput placeholder="Heights" value={form.gymY} onChange={e => setForm({ ...form, gymY: e.target.value })} className="px-2 py-1.5" />
                         </div>
-                      </Label>
-                      <Label text="Layout" hint="Row gaps, Exit widths">
+                      </FormLabel>
+                      <FormLabel text="Layout" hint="Row gaps, Exit widths">
                         <div className="grid grid-cols-2 gap-2">
-                          <input placeholder="Gap (2,3)" value={form.rowGap} onChange={e => setForm({ ...form, rowGap: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
-                          <input placeholder="Exit (10,12)" value={form.exitWidth} onChange={e => setForm({ ...form, exitWidth: e.target.value })} className="bg-black/50 border border-white/10 rounded px-2 py-1.5" />
+                          <FormInput placeholder="Gap (2,3)" value={form.rowGap} onChange={e => setForm({ ...form, rowGap: e.target.value })} className="px-2 py-1.5" />
+                          <FormInput placeholder="Exit (10,12)" value={form.exitWidth} onChange={e => setForm({ ...form, exitWidth: e.target.value })} className="px-2 py-1.5" />
                         </div>
-                      </Label>
+                      </FormLabel>
 
-                      <Label text="Concurrency" hint="Parallel Workers">
-                        <input type="number" min={1} max={32} value={form.workers}
+                      <FormLabel text="Concurrency" hint="Parallel Workers">
+                        <FormInput type="number" min={1} max={32} value={form.workers}
                           onChange={(e) => setForm({ ...form, workers: Math.max(1, Number(e.target.value)) })}
-                          className="w-full bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-xs focus:border-emerald-500/50 outline-none"
+                          className="px-2 py-1"
                         />
-                      </Label>
+                      </FormLabel>
                     </div>
                   </details>
 
@@ -531,19 +527,6 @@ export default function SweepLabPage() {
 
 
 
-function Label({ text, hint, children }: { text: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-slate-300 flex items-center gap-1">
-        {text}
-      </span>
-      {hint && (
-        <span className="text-[11px] text-slate-500 leading-snug">{hint}</span>
-      )}
-      {children}
-    </label>
-  );
-}
 
 function LegendSwatch({ color, label }: { color: string; label: string }) {
   return (

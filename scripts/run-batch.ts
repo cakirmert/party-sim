@@ -49,6 +49,7 @@ export type RunMetrics = {
   avgExitTime?: number;
   evacuationRate?: number;
   avgPathEfficiency?: number;
+  avgCongestionDensity?: number;
 };
 
 export type RunOutput = {
@@ -188,10 +189,12 @@ export function quickScore(m: RunMetrics): number {
   // 1.0 - (over * 0.5). If over is 0.4 -> 0.8 score.
   const utilization = Math.max(0, 1 - (barOver + gymOver) * 0.5);
 
-  // Congestion: corridorP95. Typical 0.1-0.3?
-  // If 0.1 -> score ~0.8. If 0.3 -> score ~0.4.
-  // Linear: 1 - (p95 * 2.5). 0.1->0.75. 0.3->0.25.
-  const congestion = Math.max(0, 1 - m.corridorP95 * 2.5);
+  // Congestion: avgCongestionDensity (or corridorP95 if old run). Typical 0.1-2.0+?
+  // We want to penalize high density.
+  // Using a simpler linear penalty: 1 / (1 + density * 0.5)
+  // If density is 1 (avg 1 neighbor), score is 0.66. If 10, score is 0.16.
+  const congestionVal = m.avgCongestionDensity !== undefined ? m.avgCongestionDensity : m.corridorP95;
+  const congestion = 1 / (1 + congestionVal * 0.5);
 
   // Path: shorter avg path length is better (typical range 30-80)
   // 30 -> 1.0. 80 -> 0.375.
@@ -404,6 +407,8 @@ async function runSimulation(
 
   let agentTicks = 0;
   let stuckTicks = 0;
+  let totalCongestion = 0;
+  let congestionSamples = 0;
   const steps = Math.max(1, Math.round(opts.simMinutes / MINUTES_PER_TICK));
 
   for (let i = 0; i < steps; i++) {
@@ -413,6 +418,12 @@ async function runSimulation(
     }
 
     engine.stepOnce();
+
+    // Sample congestion density every 20 ticks (approx 10 simulated minutes)
+    if (i % 20 === 0) {
+      totalCongestion += engine.calculateCongestionLevel();
+      congestionSamples++;
+    }
     agentTicks += engine.getAgents().length;
     engine.getAgents().forEach((a) => {
       const idx = engine.map.index(Math.round(a.pos.x), Math.round(a.pos.y));
@@ -650,6 +661,7 @@ async function runSimulation(
     avgExitTime,
     evacuationRate,
     avgPathEfficiency,
+    avgCongestionDensity: congestionSamples > 0 ? totalCongestion / congestionSamples : 0,
   };
 
   const run: RunOutput = {

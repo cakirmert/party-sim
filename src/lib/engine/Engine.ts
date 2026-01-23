@@ -192,12 +192,35 @@ export class Engine {
   get paused() { return this.clock.isPaused; }
 
   /**
+   * Calculates current agent neighbor density (congestion).
+   * Returns average number of neighbors within 10 units for all active agents.
+   */
+  public calculateCongestionLevel(): number {
+    const agents = this.getAgents();
+    const actualAgents = agents.length;
+    if (actualAgents === 0) return 0;
+
+    let totalNeighbors = 0;
+    const NEIGHBOR_RADIUS = 10;
+    for (const a1 of agents) {
+      let neighbors = 0;
+      for (const a2 of agents) {
+        if (a1.id === a2.id) continue;
+        const dist = Math.abs(a1.pos.x - a2.pos.x) + Math.abs(a1.pos.y - a2.pos.y);
+        if (dist <= NEIGHBOR_RADIUS) {
+          neighbors++;
+        }
+      }
+      totalNeighbors += neighbors;
+    }
+    return totalNeighbors / actualAgents;
+  }
+
+  /**
    * Return current metrics snapshot for live scoring.
    * Approximates metrics that are usually calculated at end of run.
    */
   getLiveMetrics(): ScoringMetrics {
-    // Throttle metrics calculation (e.g. every 60 ticks = ~1 sec at 60 TPS)
-    // "calculated rarely... maybe every 100 ticks"
     // Throttle metrics calculation: recompute only if ~1 second (20 ticks) has passed since last compute.
     // This allows UI to poll frequently without cost.
     const METRICS_INTERVAL = 20;
@@ -229,8 +252,6 @@ export class Engine {
     // Corridor Density (P95 of collected values so far)
     let corridorP95 = 0;
     if (this.corridorDensityValues.length > 0) {
-      // Basic approximation: sort only if needed
-      // Throttled now, so sorting is OK.
       const sorted = [...this.corridorDensityValues].sort((a, b) => a - b);
       const idx = Math.floor(sorted.length * 0.95);
       corridorP95 = sorted[idx];
@@ -258,19 +279,8 @@ export class Engine {
     const stuckRate = stuckCount / actualAgents;
 
     // Occupancy (Use Max Recorded Persistence)
-    // Update max currently? (Should be done in update loop, but safe to check here)
-    // We update global max arrays elsewhere? No, need to ensure they are updated.
-    // Let's assume maxBarOccupancy is updated every tick?
-    // If not, we update it here for the current moment.
-    const today = Math.floor(this.tickCount / (24 * 60 * 2)) % 7; // Approx day index?
-    // But we just need global max for scoring persistence?
-    // "should be persistent... not going down"
-    // So we take the MAX of the tracked history.
     const maxBar = Math.max(...this.maxBarOccupancy, this.poiOccupancy.BAR);
     const maxGym = Math.max(...this.maxGymOccupancy, this.poiOccupancy.GYM);
-
-    // Update the history array slot for today with current max?
-    // Actually we just need to ensure we don't return a lower value than history.
 
     const barTiles = this.barBoundingBox?.tiles || 1;
     const gymTiles = this.gymBoundingBox?.tiles || 1;
@@ -279,7 +289,6 @@ export class Engine {
     const gymOccupancyRatio = maxGym / gymTiles;
 
     // Evacuation
-    const evacs = this.outList.length;
     const evacuationRate = this.outList.length / (this.outList.length + agents.length || 1);
 
     // Avg Exit Time
@@ -289,24 +298,7 @@ export class Engine {
     }
 
     // Congestion: Average number of neighbors within radius 10
-    let totalNeighbors = 0;
-    const NEIGHBOR_RADIUS = 10;
-    if (actualAgents > 0) {
-      for (const a1 of agents) {
-        let neighbors = 0;
-        for (const a2 of agents) {
-          if (a1.id === a2.id) continue;
-          const dist = Math.abs(a1.pos.x - a2.pos.x) + Math.abs(a1.pos.y - a2.pos.y);
-          if (dist <= NEIGHBOR_RADIUS) {
-            neighbors++;
-          }
-        }
-        totalNeighbors += neighbors;
-      }
-      this.congestionLevel = totalNeighbors / actualAgents;
-    } else {
-      this.congestionLevel = 0;
-    }
+    this.congestionLevel = this.calculateCongestionLevel();
 
     // Warmup check: show "Calculating..." (undefined) for first 60 steps
     // or if no data has been sampled for path metrics.

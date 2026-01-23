@@ -7,7 +7,9 @@ import { GridMap } from "@/lib/engine/GridMap";
 import { AGENT_TYPES } from "@/lib/engine/Agent";
 import { getAgentColor } from "./utils";
 import type { MetricsMap, SimSpeed } from "@/lib/engine/Types";
-import { calculateLiveScore } from "@/lib/scoring";
+import { calculateLiveScore, ScoringMetrics, ScoreBreakdown } from "@/lib/scoring";
+import { FormLabel, FormInput, SectionHeader, FormGrid } from "./FormElements";
+
 import { ScoreInfo } from "@/components/ScoreInfo";
 
 const SPEED_OPTIONS: SimSpeed[] = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
@@ -282,8 +284,8 @@ export default function UIControls({ engineRef }: Props) {
                   <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Total Score</span>
                   <ScoreInfo score={liveScore} />
                 </div>
-                <span className={`text-4xl font-black ${!liveScore ? "text-slate-300" : liveScore.total >= 80 ? "text-emerald-500" : liveScore.total >= 50 ? "text-amber-500" : "text-rose-500"}`}>
-                  {!liveScore ? "Loading..." : Number(liveScore.total).toFixed(0)}
+                <span className={`text-4xl font-black ${(!liveScore || liveScore.total === undefined || isNaN(liveScore.total)) ? "text-slate-300" : liveScore.total >= 80 ? "text-emerald-500" : liveScore.total >= 50 ? "text-amber-500" : "text-rose-500"}`}>
+                  {(!liveScore || liveScore.total === undefined || isNaN(liveScore.total)) ? "Calculating..." : Number(liveScore.total).toFixed(0)}
                 </span>
               </div>
 
@@ -335,103 +337,106 @@ export default function UIControls({ engineRef }: Props) {
 
       {/* Map Params Panel */}
       {showMapParams && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 shadow-sm">
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Row Gap
-              <input
-                type="number"
-                min={1}
-                max={4}
-                value={mapParams.dormRowGap}
-                onChange={e => setMapParams({ dormRowGap: Number(e.target.value) })}
-                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                title="Gap between stacked room rows. Max 4 to prevent room loss."
-              />
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Bar W×H
-              <div className="flex gap-1">
-                <input
-                  type="number"
-                  min={4}
-                  max={24}
-                  value={mapParams.barWidth}
-                  onChange={e => setMapParams({ barWidth: Number(e.target.value) })}
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                />
-                <input
-                  type="number"
-                  min={4}
-                  max={16}
-                  value={mapParams.barHeight}
-                  onChange={e => setMapParams({ barHeight: Number(e.target.value) })}
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                />
-              </div>
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Gym W×H
-              <div className="flex gap-1">
-                <input
-                  type="number"
-                  min={4}
-                  max={20}
-                  value={mapParams.gymWidth}
-                  onChange={e => setMapParams({ gymWidth: Number(e.target.value) })}
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                />
-                <input
-                  type="number"
-                  min={4}
-                  max={12}
-                  value={mapParams.gymHeight}
-                  onChange={e => setMapParams({ gymHeight: Number(e.target.value) })}
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                />
-              </div>
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Exit Width
-              <input
-                type="number"
-                min={4}
-                max={20}
-                value={mapParams.exitWidth}
-                onChange={e => setMapParams({ exitWidth: Number(e.target.value) })}
-                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-              />
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Corridor Width
-              <input
-                type="number"
-                min={2}
-                max={12}
-                value={mapParams.corridorWidth}
-                onChange={e => setMapParams({ corridorWidth: Number(e.target.value) })}
-                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                title="Main vertical corridor width. Max 12."
-              />
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Bands
-              <input
-                type="number"
-                min={0}
-                max={8}
-                value={mapParams.bandCount}
-                onChange={e => setMapParams({ bandCount: Number(e.target.value) })}
-                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                title="Number of vertical bands (0 = auto-fill)."
-              />
-            </label>
+        <div className="bg-slate-900 border border-white/10 rounded-2xl p-5 shadow-2xl ring-1 ring-white/10 backdrop-blur-xl">
+          <SectionHeader text="Map Generation Parameters" />
+
+          <div className="space-y-6">
+            {/* Primary Config */}
+            <section>
+              <FormGrid>
+                <FormLabel text="Corridor Width" hint="Main walkway tiles">
+                  <FormInput
+                    type="number"
+                    min={2}
+                    max={12}
+                    value={mapParams.corridorWidth}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ corridorWidth: Number(e.target.value) })}
+                    title="Main vertical corridor width. Max 12."
+                  />
+                </FormLabel>
+                <FormLabel text="Dorm Row Gap" hint="Vertical spacing">
+                  <FormInput
+                    type="number"
+                    min={1}
+                    max={4}
+                    value={mapParams.dormRowGap}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ dormRowGap: Number(e.target.value) })}
+                    title="Gap between stacked room rows. Max 4 to prevent room loss."
+                  />
+                </FormLabel>
+                <FormLabel text="Exit Width" hint="Total exit span">
+                  <FormInput
+                    type="number"
+                    min={4}
+                    max={20}
+                    value={mapParams.exitWidth}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ exitWidth: Number(e.target.value) })}
+                  />
+                </FormLabel>
+                <FormLabel text="Bands" hint="Vertical sections (0=auto)">
+                  <FormInput
+                    type="number"
+                    min={0}
+                    max={8}
+                    value={mapParams.bandCount}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ bandCount: Number(e.target.value) })}
+                    title="Number of vertical bands (0 = auto-fill)."
+                  />
+                </FormLabel>
+              </FormGrid>
+            </section>
+
+            {/* POI Dimensions */}
+            <section className="pt-4 border-t border-white/5">
+              <FormGrid>
+                <FormLabel text="Bar Dimensions" hint="Width × Height">
+                  <div className="flex gap-2">
+                    <FormInput
+                      type="number"
+                      min={4}
+                      max={24}
+                      value={mapParams.barWidth}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ barWidth: Number(e.target.value) })}
+                      placeholder="W"
+                    />
+                    <FormInput
+                      type="number"
+                      min={4}
+                      max={16}
+                      value={mapParams.barHeight}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ barHeight: Number(e.target.value) })}
+                      placeholder="H"
+                    />
+                  </div>
+                </FormLabel>
+                <FormLabel text="Gym Dimensions" hint="Width × Height">
+                  <div className="flex gap-2">
+                    <FormInput
+                      type="number"
+                      min={4}
+                      max={20}
+                      value={mapParams.gymWidth}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ gymWidth: Number(e.target.value) })}
+                      placeholder="W"
+                    />
+                    <FormInput
+                      type="number"
+                      min={4}
+                      max={12}
+                      value={mapParams.gymHeight}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMapParams({ gymHeight: Number(e.target.value) })}
+                      placeholder="H"
+                    />
+                  </div>
+                </FormLabel>
+              </FormGrid>
+            </section>
           </div>
         </div>
       )}
 
       {/* Helper Tools */}
-      <div className="flex items-center gap-2 justify-end text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm">
+      <div className="flex items-center gap-2 justify-end text-xs text-slate-500  rounded-lg px-3 py-1.5 ">
         <button className="hover:text-slate-800 underline" onClick={() => {
           const eng = engineRef.current;
           if (eng) {
@@ -467,8 +472,8 @@ export default function UIControls({ engineRef }: Props) {
 }
 
 function ScoreCard({ label, val, sub, color, title }: { label: string; val: number | undefined | null; sub: string; color: string; title?: string }) {
-  const isLoading = val === undefined || val === null;
-  const safeVal = val ?? 0;
+  const isLoading = val === undefined || val === null || isNaN(val);
+  const safeVal = (val === undefined || val === null || isNaN(val)) ? 0 : val;
   const w = Math.min(100, Math.max(0, safeVal));
   return (
     <div className="flex flex-col gap-1 min-w-[120px]" title={title}>
