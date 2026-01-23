@@ -314,7 +314,7 @@ export default function UIControls({ engineRef }: Props) {
                     <ScoreCard
                       label="Congestion"
                       val={liveScore?.congestion}
-                      sub="Raw Badness (0 is Good)"
+                      sub="Routes Density"
                       color="bg-amber-500"
                       title="Weight: 25%"
                     />
@@ -474,8 +474,8 @@ function ScoreCard({ label, val, sub, color, title }: { label: string; val: numb
     <div className="flex flex-col gap-1 min-w-[120px]" title={title}>
       <div className="flex justify-between items-baseline">
         <span className="text-sm font-bold text-slate-700">{label}</span>
-        <span className="text-sm font-mono font-medium text-slate-500">
-          {isLoading ? "..." : safeVal.toFixed(0)}
+        <span className="text-[10px] font-mono font-medium text-slate-500 animate-pulse">
+          {isLoading ? "Calculating..." : safeVal.toFixed(0)}
         </span>
       </div>
       <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">

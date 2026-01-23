@@ -288,17 +288,41 @@ export class Engine {
       avgExitTime = this.outList.reduce((s, a) => s + (a.exitTime || 0), 0) / this.outList.length;
     }
 
+    // Congestion: Average number of neighbors within radius 10
+    let totalNeighbors = 0;
+    const NEIGHBOR_RADIUS = 10;
+    if (actualAgents > 0) {
+      for (const a1 of agents) {
+        let neighbors = 0;
+        for (const a2 of agents) {
+          if (a1.id === a2.id) continue;
+          const dist = Math.abs(a1.pos.x - a2.pos.x) + Math.abs(a1.pos.y - a2.pos.y);
+          if (dist <= NEIGHBOR_RADIUS) {
+            neighbors++;
+          }
+        }
+        totalNeighbors += neighbors;
+      }
+      this.congestionLevel = totalNeighbors / actualAgents;
+    } else {
+      this.congestionLevel = 0;
+    }
+
+    // Warmup check: show "Calculating..." (undefined) for first 60 steps
+    // or if no data has been sampled for path metrics.
+    const isWarmup = this.tickCount < 60;
+
     this.cachedMetrics = {
       roomCapacity,
       actualAgents,
       corridorP95,
-      pathEfficiency,
+      pathEfficiency: isWarmup ? undefined : pathEfficiency,
       stuckRate,
-      barOccupancyRatio,
-      gymOccupancyRatio,
+      barOccupancyRatio: isWarmup ? undefined : barOccupancyRatio,
+      gymOccupancyRatio: isWarmup ? undefined : gymOccupancyRatio,
       evacuationRate,
       avgExitTime,
-      rerouteCount: this.congestionLevel
+      rerouteCount: isWarmup ? undefined : this.congestionLevel
     };
 
     return this.cachedMetrics;
@@ -1130,13 +1154,7 @@ export class Engine {
     this.perfTimer += dtSec;
     this.ticksThisSecond++;
 
-    // Decay MORE SLOWLY to allow accumulation.
-    if (this.congestionLevel > 0) {
-      this.congestionLevel = Math.max(0, this.congestionLevel - (dtSec * 4)); // Reduced decay from 5 to 4
-    }
-    if (this.tickCount % 60 === 0 && this.congestionLevel > 0) {
-      console.log(`[Congestion] Level: ${this.congestionLevel.toFixed(2)}`);
-    }
+
 
     // Update Max Occupancy Persistence (Check every tick for peak)
     const day = this.tod.dayOfWeek;
@@ -1262,7 +1280,7 @@ export class Engine {
         let step = this.chooseLocalStep(a, occupiedTiles);
         if (!step) {
           blockedThisTick = true;
-          this.congestionLevel += 0.2; // Minor congestion for waiting
+
           a.stuckTicks = Math.min(a.stuckTicks + 1, 1000);
           // Simplified: After waiting, just try any random walkable direction (no expensive A*)
           if (a.stuckTicks >= STUCK_SEARCH_TICKS) {
@@ -1278,7 +1296,7 @@ export class Engine {
               if (occupiedTiles.has(key)) continue;
               step = dir;
               blockedThisTick = false;
-              this.congestionLevel += 1; // Increase on crash/reroute
+
               break;
             }
           }
@@ -1332,7 +1350,7 @@ export class Engine {
                 occupiedMap.set(this.keyOf(aPos), blocker);
                 occupiedMap.set(this.keyOf(bPos), a);
 
-                this.congestionLevel += 0.5; // Moderate congestion for swapping (crowding)
+
 
                 swapped = true;
                 movedThisTick = true;
