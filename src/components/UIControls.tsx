@@ -331,7 +331,7 @@ export default function UIControls({ engineRef }: Props) {
 
       {/* Map Params Panel */}
       {showMapParams && (
-        <div className="bg-slate-900 border border-white/10 rounded-2xl p-5 shadow-2xl ring-1 ring-white/10 backdrop-blur-xl">
+        <div className="bg-white/95 border border-slate-200 rounded-2xl p-5 shadow-xl ring-1 ring-slate-200 backdrop-blur-xl">
           <SectionHeader text="Map Generation Parameters" />
 
           <div className="space-y-6">
@@ -381,7 +381,7 @@ export default function UIControls({ engineRef }: Props) {
             </section>
 
             {/* POI Dimensions */}
-            <section className="pt-4 border-t border-white/5">
+            <section className="pt-4 border-t border-slate-200">
               <FormGrid>
                 <FormLabel text="Bar Dimensions" hint="Width × Height">
                   <div className="flex gap-2">

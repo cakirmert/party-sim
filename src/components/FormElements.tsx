@@ -11,7 +11,7 @@ export function FormLabel({ text, hint, children, className = "" }: {
 }) {
     return (
         <label className={`flex flex-col gap-1.5 ${className}`}>
-            <span className="text-slate-300 text-sm font-medium flex items-center gap-1.5">
+            <span className="text-slate-600 text-sm font-medium flex items-center gap-1.5">
                 {text}
             </span>
             {hint && (
@@ -60,8 +60,8 @@ export function FormInput({
             step={step}
             title={title}
             className={`
-        w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm 
-        text-slate-200 placeholder:text-slate-600 outline-none
+        w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm 
+        text-slate-800 placeholder:text-slate-400 outline-none
         focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 
         transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
         ${className}
@@ -75,7 +75,7 @@ export function FormInput({
  */
 export function SectionHeader({ text, className = "" }: { text: string; className?: string }) {
     return (
-        <h3 className={`text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] py-1 border-b border-white/5 mb-2 ${className}`}>
+        <h3 className={`text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] py-1 border-b border-slate-200 mb-2 ${className}`}>
             {text}
         </h3>
     );
