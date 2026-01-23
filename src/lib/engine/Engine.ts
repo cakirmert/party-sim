@@ -82,7 +82,7 @@ export class Engine {
 
   public maxGymOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
   public congestionLevel = 0;
-  private metricsTimer = 0;
+  private lastMetricsTick = 0;
 
   private cachedMetrics: ScoringMetrics | null = null;
 
@@ -198,12 +198,13 @@ export class Engine {
   getLiveMetrics(): ScoringMetrics {
     // Throttle metrics calculation (e.g. every 60 ticks = ~1 sec at 60 TPS)
     // "calculated rarely... maybe every 100 ticks"
-    if (this.metricsTimer > 0 && this.cachedMetrics) {
-      this.metricsTimer--;
-      // Keep lightweight counters updated immediately if desired? No, just return cached.
+    // Throttle metrics calculation: recompute only if ~1 second (20 ticks) has passed since last compute.
+    // This allows UI to poll frequently without cost.
+    const METRICS_INTERVAL = 20;
+    if (this.cachedMetrics && (this.tickCount - this.lastMetricsTick) < METRICS_INTERVAL) {
       return this.cachedMetrics;
     }
-    this.metricsTimer = 60; // Reset timer
+    this.lastMetricsTick = this.tickCount;
 
     const agents = this.getAgents();
     if (agents.length === 0) {
@@ -484,6 +485,7 @@ export class Engine {
     this.tpsTimer += realDt;
 
     const steps = this.clock.advance(nowSec);
+    this.ticksThisSecond += steps; // FIX: Metric was missing updates
     for (let i = 0; i < steps; i++) {
       this.fixedStep(1 / this.cfg.baseTickRate);
       this.tickCount++;
@@ -594,7 +596,8 @@ export class Engine {
     const gymCoeff = weights.gym * (this.rng.int(5, 8));
     const barCoeff = weights.bar * (this.rng.int(5, 8));
     const roomCoeff = weights.room * (this.rng.int(5, 8));
-    const outsideCoeff = weights.outside * (this.rng.int(5, 8));
+    // Reduced chance to go outside (was 5-8) to keep agents indoors more
+    const outsideCoeff = weights.outside * (this.rng.int(1, 3));
     const leaveMapCoeff = (weights.leaveMap || 0) * (this.rng.int(5, 8));
 
     const center = this.isMax(leaveMapCoeff, [gymCoeff, barCoeff, roomCoeff, outsideCoeff]) ? "EXIT"
@@ -1379,18 +1382,9 @@ export class Engine {
     }
 
     // Skip perf stats in headless mode unless explicitly requested
-    if (!this.cfg.headless || this.cfg.computePerfStats) {
-      while (this.perfTimer >= 1) {
-        this.perfTimer -= 1;
-        this.lastTicksPerSecond = this.ticksThisSecond;
-        this.ticksThisSecond = 0;
-        this.lastDensityRecomputes = this.densityRecomputesThisSecond;
-        this.densityRecomputesThisSecond = 0;
-      }
-    } else {
-      this.perfTimer = 0; // Reset timer to prevent buildup
-    }
+
   }
+
 
   /** Convert an agent reaching EXIT into an off-map record, remove from world. */
   private despawnToOffMap(a: Agent, exitPos: Vec2, occupied?: Set<string>) {

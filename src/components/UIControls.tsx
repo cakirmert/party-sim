@@ -194,10 +194,19 @@ export default function UIControls({ engineRef }: Props) {
               onChange={(e) => setSpeed(SPEED_OPTIONS[Number(e.target.value)])}
               className="w-full accent-indigo-500 cursor-pointer h-2 bg-slate-200 rounded-full appearance-none hover:bg-slate-300 transition-colors"
             />
-            <div className="flex justify-between w-full px-1 mt-1">
-              {SPEED_OPTIONS.map((opt) => (
-                <span key={opt} className={`text-[9px] font-bold ${speed === opt ? "text-indigo-600" : "text-slate-300"}`}>{opt}×</span>
-              ))}
+            <div className="relative w-full h-3 mt-1">
+              {SPEED_OPTIONS.map((opt, i) => {
+                const pct = (i / (SPEED_OPTIONS.length - 1)) * 100;
+                return (
+                  <span
+                    key={opt}
+                    className={`absolute text-[9px] font-bold transform -translate-x-1/2 ${speed === opt ? "text-indigo-600" : "text-slate-300"}`}
+                    style={{ left: `${pct}%` }}
+                  >
+                    {opt}×
+                  </span>
+                );
+              })}
             </div>
           </div>
         </div>
