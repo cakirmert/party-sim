@@ -240,13 +240,7 @@ export default function UIControls({ engineRef }: Props) {
 
         {/* Right: Actions */}
         <div className="flex items-center gap-3 w-full xl:w-auto justify-center xl:justify-end">
-          <button
-            className="h-11 px-5 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 hover:text-rose-700 hover:border-rose-300 transition text-xs font-bold uppercase tracking-wider shadow-sm flex items-center gap-2 group"
-            onClick={() => engineRef.current?.triggerEmergency()}
-            title="Trigger Emergency Evacuation"
-          >
-            <span className="group-hover:animate-pulse">⚠️</span> Evacuate
-          </button>
+
 
           <div className="w-px h-10 bg-slate-200 mx-1 hidden sm:block"></div>
 
