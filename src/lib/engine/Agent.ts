@@ -15,7 +15,7 @@ export type AgentType = typeof AGENT_TYPES[number];
 export class Agent extends Entity {
   pos: Vec2;
   dest: Vec2 | null = null;
-  speed = 2; // tiles/sec
+  speed = 5; // tiles/sec (Faster base movement)
   facing = { x: 1, y: 0 };
   roomId?: string;
   state: AgentState = "Breakfast";

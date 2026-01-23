@@ -10,14 +10,11 @@ export type ScoringMetrics = {
     gymOccupancyRatio: number;
     evacuationRate: number;
     avgExitTime: number;
-    avgIntegrity: number; // Reroute Score
+    rerouteCount: number; // Congestion (Total Reroutes)
     emergencyEfficiency?: number;
 };
 
 // ... (omitting ScoreBreakdown unchanged)
-
-
-
 export type ScoreBreakdown = {
     total: number;
     capacity: number;
@@ -35,23 +32,32 @@ export type ScoreBreakdown = {
 export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
     // Weights
     const w = {
-        capacity: 0.35,
-        utilization: 0.20,
-        congestion: 0.35,
-        path: 0.10,
+        capacity: 0.4,
+        utilization: 0.2,
+        congestion: 0.25,
+        path: 0.15,
     };
 
-    // Capacity & Utilization
+    // Capacity (Static Load)
+    // 100 if full. 0 if empty.
     const capRatio = m.roomCapacity > 0 ? (m.actualAgents / m.roomCapacity) : 0;
     const scoreCap = Math.min(100, capRatio * 100);
 
-    const scoreBar = Math.min(100, m.barOccupancyRatio * 250);
-    const scoreGym = Math.min(100, m.gymOccupancyRatio * 250);
-    const scoreUtil = (scoreBar + scoreGym) / 2;
+    // Utilization (Peak Persistent)
+    // "Half full = 100" => If ratio >= 0.5, score 100.
+    const barScore = Math.min(100, (m.barOccupancyRatio / 0.5) * 100);
+    const gymScore = Math.min(100, (m.gymOccupancyRatio / 0.5) * 100);
+    const scoreUtil = (barScore + gymScore) / 2;
 
-    // Congestion (Reroute Score)
-    // Normal: avgIntegrity (100 - drops).
-    let scoreCongestionTotal = m.avgIntegrity;
+    // Congestion (Reroute Penalty)
+    // Each reroute penalizes score. Start at 100?
+    // User: "start with 0 and increase each time... (badness)".
+    // But Score is usually goodness.
+    // "Congestion should be minus" -> Maybe they want a negative score display?
+    // Or they want the "Value" to be the count (0 -> Inf), and Score to be (100 -> 0).
+    // Let's assume Score = 100 - (Count * 1).
+    // If we have 100 reroutes, score is 0.
+    const scoreCongestionTotal = Math.max(0, 100 - (m.rerouteCount * 2));
 
     const isEmergency = m.emergencyEfficiency !== undefined;
 
@@ -60,9 +66,8 @@ export function calculateLiveScore(m: ScoringMetrics): ScoreBreakdown {
         const scoreEvTime = Math.max(0, 100 - Math.max(0, m.avgExitTime - 30) * (100 / 150));
         const scoreEvac = scoreEvRate * 0.6 + scoreEvTime * 0.4;
 
-        // Emergency: Mix Evac + Reroute Score?
-        // Or just Evac?
-        scoreCongestionTotal = (scoreEvac * 0.60) + (scoreCongestionTotal * 0.40);
+        // Override congestion in emergency?
+        // scoreCongestionTotal = ...
     }
 
     // Path (Distance)

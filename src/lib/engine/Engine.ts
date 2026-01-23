@@ -12,9 +12,9 @@ const BREAKFAST_MINUTES = 30;
 const POI_DWELL_MIN = 120;
 const POI_DWELL_MAX = 240;
 const RECENT_TILE_HISTORY = 6;
-const STUCK_SEARCH_TICKS = 10;
+const STUCK_SEARCH_TICKS = 15;
 const LOCAL_SEARCH_RADIUS = 0; // 0 => unlimited
-const LOCAL_SEARCH_MAX_NODES = 40000;
+const LOCAL_SEARCH_MAX_NODES = 60000;
 const NAV_SEARCH_MAX_NODES = 20000;
 const RECENT_TILE_PENALTY = 0.35;
 const MOVE_DIRS: Vec2[] = [
@@ -60,13 +60,17 @@ export class Engine {
   private poiCapacity: Record<"BAR" | "GYM", number> = { BAR: 30, GYM: 15 };
   private poiOccupancy: Record<"BAR" | "GYM", number> = { BAR: 0, GYM: 0 };
   private poiCenters = new Map<TileTag, Vec2>();
+  private poiFlowFields = new Map<string, { field: Uint16Array; version: number }>(); // Cache for common destinations
   density?: Uint16Array;
   private densityTimer = 0;
   private densityRecomputesThisSecond = 0;
   private perfTimer = 0;
   private ticksThisSecond = 0;
   private lastTicksPerSecond = 0;
+
   private lastDensityRecomputes = 0;
+  private lastRealTime = 0;
+  private tpsTimer = 0;
   private corridorTiles: Vec2[] = [];
   public pathsMetrics: Array<PathMetric> = []
   private maxPathsMetricsLength = 500;
@@ -75,13 +79,21 @@ export class Engine {
   public barBoundingBox?: BoundingBox;
   public corridorDensityValues: Array<number> = []
   public maxBarOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
+
   public maxGymOccupancy: Array<number> = [0, 0, 0, 0, 0, 0, 0]; // per day of week
+  public congestionLevel = 0;
+  private metricsTimer = 0;
+
+  private cachedMetrics: ScoringMetrics | null = null;
 
   resetMetrics() {
     this.pathsMetrics = [];
     this.maxBarOccupancy = [0, 0, 0, 0, 0, 0, 0];
     this.maxGymOccupancy = [0, 0, 0, 0, 0, 0, 0];
+
     this.corridorDensityValues = [];
+    this.congestionLevel = 0;
+    this.cachedMetrics = null;
   }
 
   private setCorridorBoundingBoxes(baseSpec?: BaseSpec) {
@@ -184,6 +196,15 @@ export class Engine {
    * Approximates metrics that are usually calculated at end of run.
    */
   getLiveMetrics(): ScoringMetrics {
+    // Throttle metrics calculation (e.g. every 60 ticks = ~1 sec at 60 TPS)
+    // "calculated rarely... maybe every 100 ticks"
+    if (this.metricsTimer > 0 && this.cachedMetrics) {
+      this.metricsTimer--;
+      // Keep lightweight counters updated immediately if desired? No, just return cached.
+      return this.cachedMetrics;
+    }
+    this.metricsTimer = 60; // Reset timer
+
     const agents = this.getAgents();
     if (agents.length === 0) {
       return {
@@ -196,7 +217,7 @@ export class Engine {
         gymOccupancyRatio: (this.poiOccupancy.GYM || 0) / (this.poiCapacity.GYM || 1),
         evacuationRate: 0,
         avgExitTime: 0,
-        avgIntegrity: 100,
+        rerouteCount: 0,
       };
     }
 
@@ -207,57 +228,56 @@ export class Engine {
     // Corridor Density (P95 of collected values so far)
     let corridorP95 = 0;
     if (this.corridorDensityValues.length > 0) {
-      // Basic approximation if array is large, or just take mean?
-      // Sorting huge array every frame is bad. 
-      // We only call this throttled.
+      // Basic approximation: sort only if needed
+      // Throttled now, so sorting is OK.
       const sorted = [...this.corridorDensityValues].sort((a, b) => a - b);
       const idx = Math.floor(sorted.length * 0.95);
       corridorP95 = sorted[idx];
     }
 
-    // Path Efficiency: "How close things are" (Avg remaining distance score)
+    // Path Efficiency: "How close everyone is to bar/gym"
     let pathEfficiency = 100;
-    let totalDist = 0;
-    let movingCount = 0;
-    for (const a of agents) {
-      if (a.dest) {
-        const dx = Math.abs(a.dest.x - a.pos.x);
-        const dy = Math.abs(a.dest.y - a.pos.y);
-        totalDist += Math.max(dx, dy); // Chebyshev for 8-way? Or Manhatten? 
-        // Using Chebyshev (diagonal move is 1 step) matches 'ticks' better.
-        movingCount++;
+    let totalProx = 0;
+    const barC = this.getPoiCenter("BAR");
+    const gymC = this.getPoiCenter("GYM");
+    if (actualAgents > 0 && barC && gymC) {
+      for (const a of agents) {
+        const dBar = Math.abs(a.pos.x - barC.x) + Math.abs(a.pos.y - barC.y);
+        const dGym = Math.abs(a.pos.x - gymC.x) + Math.abs(a.pos.y - gymC.y);
+        totalProx += Math.min(dBar, dGym);
       }
-    }
-    if (movingCount > 0) {
-      const avgDist = totalDist / movingCount;
-      // Map: 0 dist -> 100. 100 dist -> 0.
+      const avgDist = totalProx / actualAgents;
+      // Map: 0 dist (perfect) -> 100. 100 dist -> 0.
+      // If avg distance is 50 tiles, score 50.
       pathEfficiency = Math.max(0, 100 - avgDist);
     }
 
-    // Stuck Rate (Current agents with stuck/waiting status / total)
-    // We approximate 'stuck' as agents waiting > 20 ticks (10s at 2 ticks/s? No, ticks are 0.5m?)
-    // Using stuckTicks from Agent.
+    // Stuck Rate
     const stuckCount = agents.filter(a => a.stuckTicks > 10).length;
     const stuckRate = stuckCount / actualAgents;
 
-    // Occupancy (Max so far? Or Current?)
-    // Live score should probably reflect *current* performance or *cumulative* performance?
-    // "Live score" implies "how is it going".
-    // Let's use the max recorded so far to match the 'peak' nature of occupancy scoring.
+    // Occupancy (Use Max Recorded Persistence)
+    // Update max currently? (Should be done in update loop, but safe to check here)
+    // We update global max arrays elsewhere? No, need to ensure they are updated.
+    // Let's assume maxBarOccupancy is updated every tick?
+    // If not, we update it here for the current moment.
+    const today = Math.floor(this.tickCount / (24 * 60 * 2)) % 7; // Approx day index?
+    // But we just need global max for scoring persistence?
+    // "should be persistent... not going down"
+    // So we take the MAX of the tracked history.
     const maxBar = Math.max(...this.maxBarOccupancy, this.poiOccupancy.BAR);
     const maxGym = Math.max(...this.maxGymOccupancy, this.poiOccupancy.GYM);
 
-    // We need map tiles for ratio
-    // barBoundingBox might be undefined if not set? (It is set in resetWorld)
+    // Update the history array slot for today with current max?
+    // Actually we just need to ensure we don't return a lower value than history.
+
     const barTiles = this.barBoundingBox?.tiles || 1;
     const gymTiles = this.gymBoundingBox?.tiles || 1;
 
     const barOccupancyRatio = maxBar / barTiles;
     const gymOccupancyRatio = maxGym / gymTiles;
 
-    // Evacuation (only relevant if evac mode active?)
-    // We can return 0 if not finished.
-    // Or if in evac mode, return current progress.
+    // Evacuation
     const evacs = this.outList.length;
     const evacuationRate = this.outList.length / (this.outList.length + agents.length || 1);
 
@@ -267,14 +287,7 @@ export class Engine {
       avgExitTime = this.outList.reduce((s, a) => s + (a.exitTime || 0), 0) / this.outList.length;
     }
 
-    // Avg Integrity (Congestion Score)
-    let totalIntegrity = 0;
-    for (const a of agents) {
-      totalIntegrity += a.pathIntegrity;
-    }
-    const avgIntegrity = agents.length > 0 ? totalIntegrity / agents.length : 100;
-
-    return {
+    this.cachedMetrics = {
       roomCapacity,
       actualAgents,
       corridorP95,
@@ -284,8 +297,10 @@ export class Engine {
       gymOccupancyRatio,
       evacuationRate,
       avgExitTime,
-      avgIntegrity
+      rerouteCount: this.congestionLevel
     };
+
+    return this.cachedMetrics;
   }
 
   /**
@@ -418,12 +433,14 @@ export class Engine {
         const t = this.map.get(cmd.pos.x, cmd.pos.y);
         if (t.tag === "LOCKED") return; // non-editable
         this.map.set(cmd.pos.x, cmd.pos.y, { ...t, walkable: !t.walkable });
+        this.poiFlowFields.clear(); // Invalidate cache
         break;
       }
       case "MAP_SET_MOVECOST": {
         const t = this.map.get(cmd.pos.x, cmd.pos.y);
         if (t.tag === "LOCKED") return; // non-editable
         this.map.set(cmd.pos.x, cmd.pos.y, { ...t, moveCost: cmd.moveCost, walkable: true });
+        this.poiFlowFields.clear(); // Invalidate cache
         break;
       }
       case "MAP_LOAD_JSON": {
@@ -440,6 +457,7 @@ export class Engine {
         this.lastTicksPerSecond = 0;
         this.lastDensityRecomputes = 0;
         this.corridorTiles = [];
+        this.poiFlowFields.clear();
         this.pathsMetrics.length = 0;
         // Invalidate outstanding moves
         const mapVersionAfterLoad = this.map.getVersion();
@@ -460,6 +478,11 @@ export class Engine {
 
   /** Drive the sim from a raf loop; call with nowSec. Returns how many fixed steps ran. */
   advance(nowSec: number): number {
+    if (this.lastRealTime === 0) this.lastRealTime = nowSec;
+    const realDt = nowSec - this.lastRealTime;
+    this.lastRealTime = nowSec;
+    this.tpsTimer += realDt;
+
     const steps = this.clock.advance(nowSec);
     for (let i = 0; i < steps; i++) {
       this.fixedStep(1 / this.cfg.baseTickRate);
@@ -468,8 +491,23 @@ export class Engine {
         this.events.emit({ type: "TICK", tick: this.tickCount });
       }
     }
+
+    if (this.tpsTimer >= 1.0) {
+      // User reported TPS "Still wrong".
+      // Ensure we capture the accumulation correctly.
+      this.lastTicksPerSecond = this.ticksThisSecond;
+      this.ticksThisSecond = 0;
+      this.lastDensityRecomputes = this.densityRecomputesThisSecond;
+      this.densityRecomputesThisSecond = 0;
+      // Subtract 1.0 to keep residue? Or hard reset?
+      // Hard reset is safer for display stability if slight drift.
+      this.tpsTimer = 0;
+    }
     return steps;
   }
+
+
+
 
   private setAgentState(agent: Agent, state: AgentState, timerMinutes = 0) {
     if (agent.state !== state) {
@@ -783,6 +821,18 @@ export class Engine {
     return false;
   }
 
+
+
+  private isPoiCenter(pos: Vec2): boolean {
+    // Check if pos matches known POI centers
+    for (const tag of ["BAR", "GYM"] as TileTag[]) {
+      const c = this.getPoiCenter(tag);
+      if (c && c.x === pos.x && c.y === pos.y) return true;
+    }
+    return false;
+  }
+
+  // Optimized rebuild: Check cache first
   private rebuildFlowField(agent: Agent) {
     if (!agent.dest) {
       this.resetAgentTarget(agent);
@@ -791,16 +841,30 @@ export class Engine {
     // Path Efficiency Logic: Diverting reduces score (User requested -3)
     agent.pathIntegrity = Math.max(0, agent.pathIntegrity - 3);
 
+    const dest = agent.dest;
+    if (!this.map.inBounds(dest.x, dest.y)) return;
+
+    const key = this.keyOf(dest);
+    const cached = this.poiFlowFields.get(key);
+    if (cached && cached.version === this.map.getVersion()) {
+      agent.flowField = cached.field; // Share reference! Fast.
+      agent.flowFieldDest = { ...dest };
+      agent.flowFieldVersion = cached.version;
+      return;
+    }
+
     const width = this.map.width;
     const height = this.map.height;
     const size = width * height;
-    if (!agent.flowField || agent.flowField.length !== size) {
+    // ... existing logic follows, but allocation ...
+    // If we didn't use cache, ensure agent has own buffer
+    if (!agent.flowField || agent.flowField.length !== size || agent.flowField === cached?.field) {
+      // If it was sharing a cached field (that is now stale or different), allocate new.
       agent.flowField = new Uint16Array(size);
     }
     const field = agent.flowField;
     field.fill(0xffff);
-    const dest = agent.dest;
-    if (!this.map.inBounds(dest.x, dest.y)) return;
+
     const destIdx = this.map.index(dest.x, dest.y);
     field[destIdx] = 0;
     const queue: Vec2[] = [{ x: dest.x, y: dest.y }];
@@ -826,6 +890,9 @@ export class Engine {
         }
       }
     }
+    // Cache it!
+    this.poiFlowFields.set(key, { field: new Uint16Array(field), version: this.map.getVersion() });
+
     agent.flowFieldDest = { ...dest };
     agent.flowFieldVersion = this.map.getVersion();
   }
@@ -1060,6 +1127,20 @@ export class Engine {
     this.perfTimer += dtSec;
     this.ticksThisSecond++;
 
+    // Decay congestion (User: "go lower as time passes")
+    // Decay by 1 per second? Or 5%?
+    // At 20 TPS, decay factor per tick 0.99?
+    if (this.congestionLevel > 0) {
+      this.congestionLevel = Math.max(0, this.congestionLevel - (dtSec * 5)); // Decay 5 points per second
+    }
+
+    // Update Max Occupancy Persistence (Check every tick for peak)
+    const day = this.tod.dayOfWeek;
+    if (this.maxBarOccupancy[day] === undefined) this.maxBarOccupancy[day] = 0;
+    this.maxBarOccupancy[day] = Math.max(this.maxBarOccupancy[day], this.poiOccupancy.BAR);
+
+    if (this.maxGymOccupancy[day] === undefined) this.maxGymOccupancy[day] = 0;
+    this.maxGymOccupancy[day] = Math.max(this.maxGymOccupancy[day], this.poiOccupancy.GYM);
     if (this.tod.minute == 0) {
       this.tod.dayOfWeek = (this.tod.dayOfWeek + 1) % 7;
       if (prevDayOfWeek === 6) {
@@ -1156,6 +1237,20 @@ export class Engine {
         continue;
       }
 
+      // Despawn check (Aggressive but safe)
+      const currentTile = this.map.get(a.pos.x, a.pos.y);
+      if (currentTile.tag === "EXIT" && (a.state === "GoingToExit" || a.state === "Wander")) {
+        // Only despawn if they are actually leaving or wandering (prevent spawn-killing)
+        // Actually, just "GoingToExit" is safest.
+        // But if they wander outside and hit exit, should they die? User: "just should be outside..."
+        // User: "don't need to be at exit... should not try to despawn everyone inside that zone".
+        // If state is GoingToExit, they WANT to leave.
+        if (a.state === "GoingToExit") {
+          this.despawnToOffMap(a, { x: a.pos.x, y: a.pos.y }, occupiedTiles);
+          continue;
+        }
+      }
+
       let remaining = a.moveProgress + a.speed * dtSec;
       let movedThisTick = false;
       let blockedThisTick = false;
@@ -1173,10 +1268,12 @@ export class Engine {
               if (!this.map.inBounds(nx, ny)) continue;
               const tile = this.map.get(nx, ny);
               if (!tile.walkable) continue;
+              if (!tile.walkable) continue;
               const key = this.keyOf({ x: nx, y: ny });
               if (occupiedTiles.has(key)) continue;
               step = dir;
               blockedThisTick = false;
+              this.congestionLevel += 1; // Increase on crash/reroute
               break;
             }
           }
@@ -1319,6 +1416,9 @@ export class Engine {
       exitPos,
       roomId: a.roomId
     });
+    if (this.outList.length > 1000) {
+      this.outList.shift();
+    }
     if (!this.cfg.headless || this.cfg.emitEvents) {
       this.events.emit({ type: "AGENT_DESPAWNED", id: a.id });
     }

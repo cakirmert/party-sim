@@ -194,13 +194,18 @@ export default function UIControls({ engineRef }: Props) {
               onChange={(e) => setSpeed(SPEED_OPTIONS[Number(e.target.value)])}
               className="w-full accent-indigo-500 cursor-pointer h-2 bg-slate-200 rounded-full appearance-none hover:bg-slate-300 transition-colors"
             />
+            <div className="flex justify-between w-full px-1 mt-1">
+              {SPEED_OPTIONS.map((opt) => (
+                <span key={opt} className={`text-[9px] font-bold ${speed === opt ? "text-indigo-600" : "text-slate-300"}`}>{opt}×</span>
+              ))}
+            </div>
           </div>
         </div>
 
         {/* Center: Sim State */}
         <div className="flex items-center gap-6 w-full xl:w-auto justify-center">
           <div className="flex flex-col items-center px-6 border-r border-slate-200">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TPS</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Ticks/sec</span>
             <span className="text-2xl font-mono font-black text-slate-700 leading-none tracking-tight">{tps.toFixed(0)}</span>
           </div>
 
@@ -220,244 +225,250 @@ export default function UIControls({ engineRef }: Props) {
               <span className="text-sm text-slate-400 font-medium">/ {useSimStore.getState().capacity}</span>
             </div>
           </div>
-
-          {/* Right: Actions */}
-          <div className="flex items-center gap-3 w-full xl:w-auto justify-center xl:justify-end">
-            <button
-              className="h-11 px-5 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 hover:text-rose-700 hover:border-rose-300 transition text-xs font-bold uppercase tracking-wider shadow-sm flex items-center gap-2 group"
-              onClick={() => engineRef.current?.triggerEmergency()}
-              title="Trigger Emergency Evacuation"
-            >
-              <span className="group-hover:animate-pulse">⚠️</span> Evacuate
-            </button>
-
-            <div className="w-px h-10 bg-slate-200 mx-1 hidden sm:block"></div>
-
-            <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-sm">
-              <button
-                className={`h-9 px-3 rounded-lg border transition text-xs font-bold uppercase tracking-wide ${showMapParams ? "bg-white border-indigo-200 text-indigo-600 shadow-sm" : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"}`}
-                onClick={() => setShowMapParams(v => !v)}
-              >
-                Config
-              </button>
-              <button
-                className={`h-9 px-3 rounded-lg border transition text-xs font-bold uppercase tracking-wide ${showScore ? "bg-white border-emerald-200 text-emerald-600 shadow-sm" : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"}`}
-                onClick={() => setShowScore(v => !v)}
-              >
-                Scores
-              </button>
-              <button className="h-9 px-3 rounded-lg border border-transparent hover:bg-white hover:border-slate-200 text-slate-500 hover:text-slate-700 transition text-xs font-bold uppercase tracking-wide" onClick={() => {
-                bumpReset();
-              }}>
-                Reset
-              </button>
-            </div>
-          </div>
         </div>
 
-        {/* Live Score Panel (Light Theme) */}
-        {showScore && (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 shadow-sm">
-            {!liveScore ? (
-              <div className="text-sm text-slate-500 italic py-2">Waiting for scoring data (starts at 06:00)...</div>
-            ) : (
-              <div className="flex flex-wrap items-stretch gap-6">
-                <div className="flex flex-col justify-center pr-6 border-r border-slate-200">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Total Score</span>
-                    <ScoreInfo score={liveScore} />
-                  </div>
-                  <span className={`text-4xl font-black ${liveScore.total >= 80 ? "text-emerald-500" : liveScore.total >= 50 ? "text-amber-500" : "text-rose-500"}`}>
-                    {Number(liveScore.total).toFixed(0)}
-                  </span>
-                </div>
+        {/* Right: Actions */}
+        <div className="flex items-center gap-3 w-full xl:w-auto justify-center xl:justify-end">
+          <button
+            className="h-11 px-5 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 hover:text-rose-700 hover:border-rose-300 transition text-xs font-bold uppercase tracking-wider shadow-sm flex items-center gap-2 group"
+            onClick={() => engineRef.current?.triggerEmergency()}
+            title="Trigger Emergency Evacuation"
+          >
+            <span className="group-hover:animate-pulse">⚠️</span> Evacuate
+          </button>
 
-                <div className="flex-1 grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  {engineRef.current?.emergencyMode ? (
-                    <ScoreCard
-                      label="Evacuation"
-                      val={liveScore.emergencyEfficiency}
-                      sub="Emergency Efficiency"
-                      color="bg-rose-500"
-                    />
-                  ) : (
-                    <>
-                      <ScoreCard
-                        label="Capacity"
-                        val={liveScore.capacity}
-                        sub="Occupancy vs Capacity"
-                        color="bg-blue-500"
-                      />
-                      <ScoreCard
-                        label="Room Usage"
-                        val={liveScore.utilization}
-                        sub="Room Occupancy vs Capacity"
-                        color="bg-cyan-500"
-                      />
-                      <ScoreCard
-                        label="Congestion"
-                        val={liveScore.congestion}
-                        sub="Congestion"
-                        color="bg-amber-500"
-                      />
-                      <ScoreCard
-                        label="Path Efficiency"
-                        val={liveScore.path}
-                        sub="Avg. Path Overhead"
-                        color="bg-indigo-500"
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
+          <div className="w-px h-10 bg-slate-200 mx-1 hidden sm:block"></div>
+
+          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-sm">
+            <button
+              className={`h-9 px-3 rounded-lg border transition text-xs font-bold uppercase tracking-wide ${showMapParams ? "bg-white border-indigo-200 text-indigo-600 shadow-sm" : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"}`}
+              onClick={() => setShowMapParams(v => !v)}
+            >
+              Config
+            </button>
+            <button
+              className={`h-9 px-3 rounded-lg border transition text-xs font-bold uppercase tracking-wide ${showScore ? "bg-white border-emerald-200 text-emerald-600 shadow-sm" : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"}`}
+              onClick={() => setShowScore(v => !v)}
+            >
+              Scores
+            </button>
+            <button className="h-9 px-3 rounded-lg border border-transparent hover:bg-white hover:border-slate-200 text-slate-500 hover:text-slate-700 transition text-xs font-bold uppercase tracking-wide" onClick={() => {
+              bumpReset();
+            }}>
+              Reset
+            </button>
           </div>
-        )}
+        </div>
+      </div>
 
-        {/* Map Params Panel */}
-        {showMapParams && (
-          <div className="w-full grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 bg-slate-50 border border-slate-200 rounded p-2 z-40 relative shadow-lg">
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Row Gap
+      {/* Live Score Panel (Light Theme) */}
+      {showScore && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 shadow-sm">
+          {!liveScore ? (
+            <div className="text-sm text-slate-500 italic py-2">Waiting for scoring data (starts at 06:00)...</div>
+          ) : (
+            <div className="flex flex-wrap items-stretch gap-6">
+              <div className="flex flex-col justify-center pr-6 border-r border-slate-200">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Total Score</span>
+                  <ScoreInfo score={liveScore} />
+                </div>
+                <span className={`text-4xl font-black ${liveScore.total >= 80 ? "text-emerald-500" : liveScore.total >= 50 ? "text-amber-500" : "text-rose-500"}`}>
+                  {Number(liveScore.total).toFixed(0)}
+                </span>
+              </div>
+
+              <div className="flex-1 grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {engineRef.current?.emergencyMode ? (
+                  <ScoreCard
+                    label="Evacuation"
+                    val={liveScore.emergencyEfficiency}
+                    sub="Emergency Efficiency"
+                    color="bg-rose-500"
+                  />
+                ) : (
+                  <>
+                    <ScoreCard
+                      label="Capacity"
+                      val={liveScore.capacity}
+                      sub="Occupancy vs Capacity"
+                      color="bg-blue-500"
+                      title="Weight: 40%"
+                    />
+                    <ScoreCard
+                      label="Room Usage"
+                      val={liveScore.utilization}
+                      sub="Room Occupancy vs Capacity"
+                      color="bg-cyan-500"
+                      title="Weight: 20%"
+                    />
+                    <ScoreCard
+                      label="Congestion"
+                      val={liveScore.congestion}
+                      sub="Congestion"
+                      color="bg-amber-500"
+                      title="Weight: 25%"
+                    />
+                    <ScoreCard
+                      label="Path Efficiency"
+                      val={liveScore.path}
+                      sub="Avg. Path Overhead"
+                      color="bg-indigo-500"
+                      title="Weight: 15%"
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Map Params Panel */}
+      {showMapParams && (
+        <div className="w-full grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 bg-slate-50 border border-slate-200 rounded p-2 z-40 relative shadow-lg">
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Row Gap
+            <input
+              type="number"
+              min={1}
+              max={4}
+              value={mapParams.dormRowGap}
+              onChange={e => setMapParams({ dormRowGap: Number(e.target.value) })}
+              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+              title="Gap between stacked room rows. Max 4 to prevent room loss."
+            />
+          </label>
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Bar W×H
+            <div className="flex gap-1">
               <input
                 type="number"
-                min={1}
-                max={4}
-                value={mapParams.dormRowGap}
-                onChange={e => setMapParams({ dormRowGap: Number(e.target.value) })}
+                min={4}
+                max={24}
+                value={mapParams.barWidth}
+                onChange={e => setMapParams({ barWidth: Number(e.target.value) })}
                 className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                title="Gap between stacked room rows. Max 4 to prevent room loss."
               />
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Bar W×H
-              <div className="flex gap-1">
-                <input
-                  type="number"
-                  min={4}
-                  max={24}
-                  value={mapParams.barWidth}
-                  onChange={e => setMapParams({ barWidth: Number(e.target.value) })}
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                />
-                <input
-                  type="number"
-                  min={4}
-                  max={16}
-                  value={mapParams.barHeight}
-                  onChange={e => setMapParams({ barHeight: Number(e.target.value) })}
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                />
-              </div>
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Gym W×H
-              <div className="flex gap-1">
-                <input
-                  type="number"
-                  min={4}
-                  max={20}
-                  value={mapParams.gymWidth}
-                  onChange={e => setMapParams({ gymWidth: Number(e.target.value) })}
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                />
-                <input
-                  type="number"
-                  min={4}
-                  max={12}
-                  value={mapParams.gymHeight}
-                  onChange={e => setMapParams({ gymHeight: Number(e.target.value) })}
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                />
-              </div>
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Exit Width
+              <input
+                type="number"
+                min={4}
+                max={16}
+                value={mapParams.barHeight}
+                onChange={e => setMapParams({ barHeight: Number(e.target.value) })}
+                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+              />
+            </div>
+          </label>
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Gym W×H
+            <div className="flex gap-1">
               <input
                 type="number"
                 min={4}
                 max={20}
-                value={mapParams.exitWidth}
-                onChange={e => setMapParams({ exitWidth: Number(e.target.value) })}
+                value={mapParams.gymWidth}
+                onChange={e => setMapParams({ gymWidth: Number(e.target.value) })}
                 className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
               />
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Corridor Width
               <input
                 type="number"
-                min={2}
+                min={4}
                 max={12}
-                value={mapParams.corridorWidth}
-                onChange={e => setMapParams({ corridorWidth: Number(e.target.value) })}
+                value={mapParams.gymHeight}
+                onChange={e => setMapParams({ gymHeight: Number(e.target.value) })}
                 className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                title="Main vertical corridor width. Max 12."
               />
-            </label>
-            <label className="text-xs text-slate-600 flex flex-col gap-1">
-              Bands
-              <input
-                type="number"
-                min={0}
-                max={8}
-                value={mapParams.bandCount}
-                onChange={e => setMapParams({ bandCount: Number(e.target.value) })}
-                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
-                title="Number of vertical bands (0 = auto-fill)."
-              />
-            </label>
-          </div>
-        )}
+            </div>
+          </label>
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Exit Width
+            <input
+              type="number"
+              min={4}
+              max={20}
+              value={mapParams.exitWidth}
+              onChange={e => setMapParams({ exitWidth: Number(e.target.value) })}
+              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+            />
+          </label>
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Corridor Width
+            <input
+              type="number"
+              min={2}
+              max={12}
+              value={mapParams.corridorWidth}
+              onChange={e => setMapParams({ corridorWidth: Number(e.target.value) })}
+              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+              title="Main vertical corridor width. Max 12."
+            />
+          </label>
+          <label className="text-xs text-slate-600 flex flex-col gap-1">
+            Bands
+            <input
+              type="number"
+              min={0}
+              max={8}
+              value={mapParams.bandCount}
+              onChange={e => setMapParams({ bandCount: Number(e.target.value) })}
+              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 shadow-sm"
+              title="Number of vertical bands (0 = auto-fill)."
+            />
+          </label>
+        </div>
+      )}
 
-        {/* Helper Tools */}
-        <div className="flex items-center gap-2 justify-end text-xs text-slate-500 px-3">
-          <button className="hover:text-slate-800 underline" onClick={() => {
-            const eng = engineRef.current;
-            if (eng) {
-              const json = eng.map.toJSON();
-              const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = "map.json"; a.click();
-              URL.revokeObjectURL(url);
+      {/* Helper Tools */}
+      <div className="flex items-center gap-2 justify-end text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm">
+        <button className="hover:text-slate-800 underline" onClick={() => {
+          const eng = engineRef.current;
+          if (eng) {
+            const json = eng.map.toJSON();
+            const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = "map.json"; a.click();
+            URL.revokeObjectURL(url);
+          }
+        }}>Save Map JSON</button>
+        <span>|</span>
+        <button className="hover:text-slate-800 underline" onClick={() => fileRef.current?.click()}>Load Map JSON</button>
+        <input ref={fileRef} type="file" accept="application/json" className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            try {
+              const txt = await file.text();
+              const json = JSON.parse(txt);
+              if (!json || !json.width || !json.height || !json.tiles) throw new Error("Expected MapJSON with tiles");
+              const eng = engineRef.current!;
+              eng.dispatch({ type: "MAP_LOAD_JSON", map: json });
+              setToast("Map loaded.");
+            } catch (error: unknown) {
+              console.error(error);
+              setToast("Failed to load map.json (must include tiles).");
             }
-          }}>Save Map JSON</button>
-          <span>|</span>
-          <button className="hover:text-slate-800 underline" onClick={() => fileRef.current?.click()}>Load Map JSON</button>
-          <input ref={fileRef} type="file" accept="application/json" className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              try {
-                const txt = await file.text();
-                const json = JSON.parse(txt);
-                if (!json || !json.width || !json.height || !json.tiles) throw new Error("Expected MapJSON with tiles");
-                const eng = engineRef.current!;
-                eng.dispatch({ type: "MAP_LOAD_JSON", map: json });
-                setToast("Map loaded.");
-              } catch (error: unknown) {
-                console.error(error);
-                setToast("Failed to load map.json (must include tiles).");
-              }
-            }} />
-        </div>
+          }} />
       </div>
-      );
+    </div>
+  );
 }
 
-      function ScoreCard({label, val, sub, color, title}: {label: string, val: number, sub: string, color: string, title?: string }) {
+function ScoreCard({ label, val, sub, color, title }: { label: string; val: number; sub: string; color: string; title?: string }) {
   const safeVal = val ?? 0;
-      const w = Math.min(100, Math.max(0, safeVal));
-      return (
-      <div className="flex flex-col gap-1 min-w-[120px]" title={title}>
-        <div className="flex justify-between items-baseline">
-          <span className="text-sm font-bold text-slate-700">{label}</span>
-          <span className="text-sm font-mono font-medium text-slate-500">{safeVal.toFixed(0)}</span>
-        </div>
-        <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-          <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${w}%` }}></div>
-        </div>
-        <span className="text-[10px] text-slate-400">{sub}</span>
+  const w = Math.min(100, Math.max(0, safeVal));
+  return (
+    <div className="flex flex-col gap-1 min-w-[120px]" title={title}>
+      <div className="flex justify-between items-baseline">
+        <span className="text-sm font-bold text-slate-700">{label}</span>
+        <span className="text-sm font-mono font-medium text-slate-500">{safeVal.toFixed(0)}</span>
       </div>
-      )
+      <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${w}%` }}></div>
+      </div>
+      <span className="text-[10px] text-slate-400">{sub}</span>
+    </div>
+  );
 }
+
